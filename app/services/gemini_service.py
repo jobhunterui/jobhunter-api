@@ -13,44 +13,57 @@ class GeminiService:
         self.api_url = f"{settings.GEMINI_API_URL}/{self.model}:generateContent"
 
     async def generate_cv(self, job_description: str, resume: str) -> Dict[str, Any]:
-        """
-        Generate a CV using Gemini AI based on job description and resume.
-        """
-        prompt = self._create_prompt(job_description, resume)
-        
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                self.api_url,
-                headers={"Content-Type": "application/json"},
-                params={"key": self.api_key},
-                json={
-                    "contents": [
-                        {
-                            "parts": [
-                                {
-                                    "text": prompt
-                                }
-                            ]
-                        }
-                    ],
-                    "generationConfig": {
-                        "temperature": 0.2,
-                        "topP": 0.8,
-                        "topK": 40,
-                        "maxOutputTokens": 2048,
-                    }
-                },
-                timeout=30.0,
-            )
-            
-            response.raise_for_status()
-            data = response.json()
-            
-            # Extract the response text from Gemini
-            result_text = data["candidates"][0]["content"]["parts"][0]["text"]
-            
-            # Process the response to extract the JSON data
-            return self._extract_json(result_text)
+      """
+      Generate a CV using Gemini AI based on job description and resume.
+      """
+      prompt = self._create_prompt(job_description, resume)
+      
+      try:
+          async with httpx.AsyncClient() as client:
+              response = await client.post(
+                  self.api_url,
+                  headers={"Content-Type": "application/json"},
+                  params={"key": self.api_key},
+                  json={
+                      "contents": [
+                          {
+                              "parts": [
+                                  {
+                                      "text": prompt
+                                  }
+                              ]
+                          }
+                      ],
+                      "generationConfig": {
+                          "temperature": 0.2,
+                          "topP": 0.8,
+                          "topK": 40,
+                          "maxOutputTokens": 2048,
+                      }
+                  },
+                  timeout=60.0,  # Increased timeout
+              )
+              
+              # Print response status for debugging
+              print(f"Gemini API response status: {response.status_code}")
+              
+              try:
+                  response.raise_for_status()
+                  data = response.json()
+                  
+                  # Extract the response text from Gemini
+                  result_text = data["candidates"][0]["content"]["parts"][0]["text"]
+                  
+                  # Process the response to extract the JSON data
+                  return self._extract_json(result_text)
+              except Exception as e:
+                  # Print more detailed error information
+                  print(f"Error processing Gemini response: {str(e)}")
+                  print(f"Response content: {response.text if response.text else 'No response content'}")
+                  raise ValueError(f"Failed to process Gemini API response: {str(e)}")
+      except Exception as e:
+          print(f"Exception in Gemini API call: {str(e)}")
+          raise ValueError(f"Gemini API error: {str(e)}")
     
     def _create_prompt(self, job_description: str, resume: str) -> str:
         """

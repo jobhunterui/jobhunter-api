@@ -1,7 +1,7 @@
 import os
 from typing import List, Union
 
-from pydantic import validator
+from pydantic import field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -24,7 +24,8 @@ class Settings(BaseSettings):
     # CORS Settings
     ALLOWED_ORIGINS: Union[str, List[str]] = []
 
-    @validator("ALLOWED_ORIGINS", pre=True)
+    @field_validator("ALLOWED_ORIGINS", mode="before")
+    @classmethod
     def assemble_cors_origins(cls, v: Union[str, List[str]]) -> Union[List[str], str]:
         if isinstance(v, str) and not v.startswith("["):
             return [i.strip() for i in v.split(",")]
@@ -38,7 +39,7 @@ class Settings(BaseSettings):
     GEMINI_API_URL: str = "https://generativelanguage.googleapis.com/v1beta/models"
 
     # Redis Settings (for rate limiting)
-    REDIS_URL: str = None
+    REDIS_URL: str = ""  # Empty string instead of None
     DAILY_QUOTA: int = 100
 
     # Environment Settings
