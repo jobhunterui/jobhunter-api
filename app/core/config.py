@@ -1,0 +1,60 @@
+import os
+from typing import List, Union
+
+from pydantic import validator
+from pydantic_settings import BaseSettings
+
+
+class Settings(BaseSettings):
+    # API Settings
+    API_V1_STR: str = "/api/v1"
+    PROJECT_NAME: str = "JobHunter CV Generator API"
+    DEBUG_MODE: bool = False
+    VERSION: str = "0.1.0"
+    DESCRIPTION: str = """
+    JobHunter CV Generator API.
+    Creates tailored CVs using Google's Gemini AI model.
+    """
+
+    # Server Settings
+    HOST: str = "0.0.0.0"
+    PORT: int = 8000
+    LOG_LEVEL: str = "INFO"
+
+    # CORS Settings
+    ALLOWED_ORIGINS: Union[str, List[str]] = []
+
+    @validator("ALLOWED_ORIGINS", pre=True)
+    def assemble_cors_origins(cls, v: Union[str, List[str]]) -> Union[List[str], str]:
+        if isinstance(v, str) and not v.startswith("["):
+            return [i.strip() for i in v.split(",")]
+        elif isinstance(v, (list, str)):
+            return v
+        raise ValueError(v)
+
+    # Gemini API Settings
+    GEMINI_API_KEY: str
+    GEMINI_MODEL: str = "gemini-2.0-flash"
+    GEMINI_API_URL: str = "https://generativelanguage.googleapis.com/v1beta/models"
+
+    # Redis Settings (for rate limiting)
+    REDIS_URL: str = None
+    DAILY_QUOTA: int = 100
+
+    # Environment Settings
+    ENVIRONMENT: str = "development"
+
+    class Config:
+        env_file = ".env"
+        case_sensitive = True
+
+
+settings = Settings()
+
+# Initialize settings
+if not settings.ALLOWED_ORIGINS:
+    settings.ALLOWED_ORIGINS = [
+        "https://jobhunterui.github.io",  # GitHub Pages
+        "http://localhost:8000",  # Local development server
+        "moz-extension://",  # Firefox extension
+    ]
