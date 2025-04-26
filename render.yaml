@@ -1,0 +1,21 @@
+services:
+  # API service
+  - type: web
+    name: jobhunter-api
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.api.server:app --host 0.0.0.0 --port $PORT
+    plan: free
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: ALLOWED_ORIGINS
+        value: https://jobhunterui.github.io,moz-extension://
+      - key: DAILY_QUOTA
+        value: 100
+      - key: ENVIRONMENT
+        value: production
+      - key: DEBUG_MODE
+        value: false
+      - key: LOG_LEVEL
+        value: INFO
