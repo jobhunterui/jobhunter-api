@@ -364,7 +364,6 @@ class GeminiService:
     7. Include a closing paragraph expressing enthusiasm and requesting an interview
     8. Use a professional tone that matches the industry
     9. Include proper formatting with:
-    - Today's date
     - Greeting/salutation ("Dear Hiring Manager" if no name is available)
     - Closing (e.g., "Sincerely,")
     - Candidate's name
