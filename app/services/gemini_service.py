@@ -105,7 +105,7 @@ class GeminiService:
 
   Return ONLY valid JSON - No explanation text:
   ```json
-  {
+  {{
     "fullName": "",
     "jobTitle": "",
     "summary": "",
@@ -114,31 +114,31 @@ class GeminiService:
     "phone": "",
     "location": "",
     "experience": [
-      {
+      {{
         "jobTitle": "",
         "company": "",
         "dates": "",
         "description": "",
         "achievements": ["", "", ""],
         "relevanceScore": 95
-      }
+      }}
     ],
     "education": [
-      {
+      {{
         "degree": "",
         "institution": "",
         "dates": "",
         "relevanceScore": 80
-      }
+      }}
     ],
     "skills": ["", ""],
     "certifications": ["", ""],
-    "skillGapAnalysis": {
+    "skillGapAnalysis": {{
       "matchingSkills": [""],
       "missingSkills": [""],
       "overallMatch": 85
-    }
-  }
+    }}
+  }}
   ```
   """
     
