@@ -274,3 +274,100 @@ class GeminiService:
           print(f"Repair validation failed: {str(e)}")
           # If repair failed, return a minimal valid JSON
           return '{"fullName": "Repair Failed", "error": "Could not extract complete CV data"}'
+
+    async def generate_cover_letter(self, job_description: str, resume: str, feedback: str = "") -> str:
+        """
+        Generate a cover letter using Gemini AI based on job description and resume.
+        """
+        prompt = self._create_cover_letter_prompt(job_description, resume, feedback)
+        
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    self.api_url,
+                    headers={"Content-Type": "application/json"},
+                    params={"key": self.api_key},
+                    json={
+                        "contents": [
+                            {
+                                "parts": [
+                                    {
+                                        "text": prompt
+                                    }
+                                ]
+                            }
+                        ],
+                        "generationConfig": {
+                            "temperature": 0.2,
+                            "topP": 0.8,
+                            "topK": 40,
+                            "maxOutputTokens": 4096,
+                        }
+                    },
+                    timeout=120.0,
+                )
+                
+                # Print response status for debugging
+                print(f"Gemini API response status for cover letter: {response.status_code}")
+                
+                try:
+                    response.raise_for_status()
+                    data = response.json()
+                    
+                    # Extract the response text from Gemini
+                    result_text = data["candidates"][0]["content"]["parts"][0]["text"]
+                    finish_reason = data["candidates"][0].get("finishReason", "UNKNOWN")
+                    
+                    if finish_reason == "MAX_TOKENS":
+                        print("Warning: Gemini response was truncated due to MAX_TOKENS limit")
+                    
+                    # Return the cover letter text
+                    return result_text.strip()
+                except Exception as e:
+                    print(f"Error processing Gemini response for cover letter: {str(e)}")
+                    print(f"Response content: {response.text if response.text else 'No response content'}")
+                    raise ValueError(f"Failed to process Gemini API response: {str(e)}")
+        except Exception as e:
+            print(f"Exception in Gemini API call for cover letter: {str(e)}")
+            raise ValueError(f"Gemini API error: {str(e)}")
+
+    def _create_cover_letter_prompt(self, job_description: str, resume: str, feedback: str = "") -> str:
+        """
+        Create a prompt for generating a cover letter.
+        """
+        feedback_section = ""
+        if feedback:
+            feedback_section = f"""
+    FEEDBACK FROM PREVIOUS ATTEMPT:
+    {feedback}
+
+    Please address this feedback in the new cover letter.
+    """
+        
+        return f"""
+    You are an expert cover letter writer. Create a professional, compelling cover letter for this specific job.
+
+    JOB DESCRIPTION:
+    {job_description}
+
+    CANDIDATE RESUME:
+    {resume}
+
+    {feedback_section}
+    GUIDELINES:
+    1. Create a professional, concise cover letter (300-400 words)
+    2. Use proper business letter format with date, greeting, paragraphs, and closing
+    3. Highlight the most relevant skills and experiences from the resume
+    4. Demonstrate clear understanding of the job requirements
+    5. Include a strong opening paragraph that hooks the reader
+    6. Include a paragraph on relevant achievements and skills
+    7. Include a closing paragraph expressing enthusiasm and requesting an interview
+    8. Use a professional tone that matches the industry
+    9. Include proper formatting with:
+    - Today's date
+    - Greeting/salutation ("Dear Hiring Manager" if no name is available)
+    - Closing (e.g., "Sincerely,")
+    - Candidate's name
+
+    Return ONLY the ready-to-use cover letter with no additional explanations.
+    """
