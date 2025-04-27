@@ -8,7 +8,7 @@ class CVRequest(BaseModel):
     resume: str = Field(..., description="User's current resume/CV")
     
     class Config:
-        schema_extra = {
+        json_schema_extra = {
             "example": {
                 "job_description": "We are looking for a Software Engineer with experience in Python and FastAPI...",
                 "resume": "John Doe\nExperienced Software Engineer\n...",

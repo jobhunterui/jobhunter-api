@@ -70,7 +70,7 @@ class GeminiService:
         Create a structured prompt for the Gemini API.
         """
         return f"""
-I need you to create a tailored CV in JSON format based on a candidate's resume and a job description.
+You are an expert CV tailor and professional career coach. Create a comprehensive CV tailored specifically for this job, focusing on relevance and professional presentation.
 
 JOB DESCRIPTION:
 {job_description}
@@ -78,7 +78,43 @@ JOB DESCRIPTION:
 CANDIDATE'S RESUME:
 {resume}
 
-Please analyze the resume and the job description, then create a tailored CV that highlights the most relevant experiences, skills, and qualifications for this specific job.
+1. Carefully analyze both the job description and resume to identify key matching skills, experience and qualifications.
+
+2. Produce a structured, comprehensive CV in JSON format with these exact fields:
+   - fullName: Full name from the resume
+   - jobTitle: A tailored professional title that matches the target job
+   - summary: A compelling, specific professional summary highlighting relevant qualifications (4-5 lines)
+   - email, linkedin, phone, location: Contact details from resume
+   
+   - experience: An array of work experience entries, ordered by relevance to the job, with each containing:
+     * jobTitle: Position title (keep original unless extremely relevant to modify)
+     * company: Company name
+     * dates: Employment period
+     * description: Role description with responsibilities MOST relevant to target job
+     * achievements: Array of 3+ measurable achievements with quantifiable results where possible
+     * relevanceScore: A number 0-100 indicating how relevant this role is to the target job
+   
+   - education: Array of educational qualifications with:
+     * degree: Degree/qualification name
+     * institution: School/university name
+     * dates: Study period
+     * relevanceScore: Relevance to target job (0-100)
+   
+   - skills: Array of skills categorized by type (e.g., "Technical: skill1, skill2", "Soft Skills: skill1, skill2")
+   - certifications: Array of relevant certifications with dates
+   
+   - skillGapAnalysis:
+     * matchingSkills: Array of skills from resume that match job requirements
+     * missingSkills: Array of skills mentioned in job that aren't clearly evident in resume
+     * overallMatch: Overall match percentage (0-100)
+
+3. Important Guidelines:
+   - Focus on RELEVANCE above all else - ruthlessly prioritize content most relevant to this specific job
+   - Include measurable achievements with numbers wherever possible
+   - Use strong action verbs and industry-specific terminology from the job description
+   - Be truthful but strategic in highlighting relevant experience
+   - Ensure all JSON fields are properly formatted and complete
+   - For each experience item, provide a relevanceScore that accurately reflects how relevant that position is to the target job
 
 Return ONLY the JSON data in the following format without any additional explanation or text:
 
@@ -133,8 +169,6 @@ Return ONLY the JSON data in the following format without any additional explana
   }}
 }}
 ```
-
-Prioritize skills and experience that are most relevant to the job description. For each experience and education item, add a relevanceScore from 0-100 indicating relevance to this job. Include the skillGapAnalysis section to help understand the fit for the role.
         """
     
     def _extract_json(self, text: str) -> Dict[str, Any]:
