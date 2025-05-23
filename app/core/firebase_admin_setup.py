@@ -4,6 +4,10 @@ from app.core.config import settings
 import os
 import json # Make sure json is imported
 
+print(f"DEBUG: FIREBASE_CREDENTIALS_JSON is set: {bool(settings.FIREBASE_CREDENTIALS_JSON)}")
+print(f"DEBUG: FIREBASE_SERVICE_ACCOUNT_PATH_RENDER: {settings.FIREBASE_SERVICE_ACCOUNT_PATH_RENDER}")
+print(f"DEBUG: FIREBASE_SERVICE_ACCOUNT_KEY_PATH_LOCAL: {settings.FIREBASE_SERVICE_ACCOUNT_KEY_PATH_LOCAL}")
+
 def initialize_firebase_admin():
     if firebase_admin._apps:
         print("Firebase Admin SDK already initialized.")
