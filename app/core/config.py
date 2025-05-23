@@ -1,5 +1,5 @@
 import os
-from typing import List, Union
+from typing import List, Union, Optional
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings
@@ -33,6 +33,15 @@ class Settings(BaseSettings):
             return v
         raise ValueError(v)
 
+    # Firebase Admin SDK settings
+    # For Render, set FIREBASE_CREDENTIALS_JSON (as JSON string)
+    # OR FIREBASE_SERVICE_ACCOUNT_PATH (as path to secret file) in Render's env vars.
+    FIREBASE_CREDENTIALS_JSON: Optional[str] = None
+    FIREBASE_SERVICE_ACCOUNT_PATH_RENDER: Optional[str] = None # Explicit for Render path
+    
+    # For local development, loaded from .env
+    FIREBASE_SERVICE_ACCOUNT_KEY_PATH_LOCAL: Optional[str] = None
+
     # Gemini API Settings
     GEMINI_API_KEY: str
     GEMINI_MODEL: str = "gemini-2.0-flash"
@@ -48,6 +57,7 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = True
+        extra = 'ignore'
 
 
 settings = Settings()
