@@ -107,7 +107,7 @@ async def get_user_subscription_object(uid: str) -> Optional[UserSubscription]:
 
 async def update_user_subscription_from_paystack(
     uid: str,
-    tier: str, # e.g., "premium_monthly", "premium_yearly", or just "premium"
+    tier: str, # e.g., "pro_monthly", "pro_yearly", or just "pro"
     status: str, # e.g., "active", "cancelled", "past_due"
     paystack_subscription_id: Optional[str],
     paystack_customer_id: Optional[str],

@@ -224,7 +224,7 @@ async def paystack_webhook(
                 tier = "free" # default
                 for plan_name, p_code in settings.PAYSTACK_PLAN_CODES.items():
                     if p_code == charge_data.plan_object.plan_code:
-                        tier = f"premium_{plan_name}" # e.g. premium_monthly
+                        tier = f"pro_{plan_name}" # e.g. pro_monthly
                         break
                 
                 # Estimate subscription end date based on plan interval (monthly/annually)
@@ -260,7 +260,7 @@ async def paystack_webhook(
             tier = "free"
             for plan_name, p_code in settings.PAYSTACK_PLAN_CODES.items():
                 if p_code == sub_data.plan.plan_code:
-                    tier = f"premium_{plan_name}"
+                    tier = f"pro_{plan_name}"
                     break
 
             await user_service.update_user_subscription_from_paystack(
@@ -303,7 +303,7 @@ async def paystack_webhook(
                     tier = "free" # Determine original tier if needed for logging
                     for plan_name, p_code in settings.PAYSTACK_PLAN_CODES.items():
                         if p_code == sub_data.plan.plan_code:
-                            tier = f"premium_{plan_name}" # Keep their current tier name
+                            tier = f"pro_{plan_name}" # Keep their current tier name
                             break
                     await user_service.update_user_subscription_from_paystack(
                         uid=user_uid_from_event,
