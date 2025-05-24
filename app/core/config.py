@@ -1,5 +1,5 @@
 import os
-from typing import List, Union, Optional
+from typing import List, Union, Optional, Dict
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings
@@ -50,6 +50,14 @@ class Settings(BaseSettings):
     # Redis Settings (for rate limiting)
     REDIS_URL: str = ""  # Empty string instead of None
     DAILY_QUOTA: int = 100
+    
+    # Paystack Settings
+    PAYSTACK_SECRET_KEY: str
+    PAYSTACK_PUBLIC_KEY: str
+    PAYSTACK_PLAN_CODES: Dict[str, str] = {
+        "monthly": "PLN_y6ssj3yx0t392cz",
+        "yearly": "PLN_uqktx3mjkn0skcx"
+    }
 
     # Environment Settings
     ENVIRONMENT: str = "development"

@@ -4,7 +4,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
 from app.api.routes import api_router # This should be the main router aggregating others
-from app.api.routes import users as users_router # Import the new users router
+from app.api.routes import users as users_router
+from app.api.routes import payments as payments_router
 from app.core.config import settings
 from app.core.firebase_admin_setup import initialize_firebase_admin
 
@@ -45,8 +46,15 @@ def get_application() -> FastAPI:
     # Include the new users router
     application.include_router(
         users_router.router, # Make sure to use users_router.router
-        prefix=f"{settings.API_V1_STR}/users", #
-        tags=["Users"] # Add a tag for API docs
+        prefix=f"{settings.API_V1_STR}/users", # e.g. /api/v1/users
+        tags=["Users"]
+    )
+    
+    # NEW: Include the payments router
+    application.include_router(
+        payments_router.router,
+        prefix=f"{settings.API_V1_STR}/payments", # e.g. /api/v1/payments
+        tags=["Payments"]
     )
 
 
