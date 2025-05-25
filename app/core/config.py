@@ -69,8 +69,8 @@ class Settings(BaseSettings):
     
     # Paystack Plan Codes (same for both test and live)
     PAYSTACK_ACTUAL_PLAN_CODES: Dict[str, str] = {
-        "monthly": "PLN_y6ssj3yx0t392cz",
-        "yearly": "PLN_uqktx3mjkn0skcx"
+        "monthly": "PLN_y6ssj3yxOt392cz",
+        "yearly": "PLN_uqktx3mjknOskcx" 
     }
     PAYSTACK_PLAN_CODES: Optional[Dict[str, str]] = None
 
