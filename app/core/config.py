@@ -72,7 +72,8 @@ class Settings(BaseSettings):
     # Use clear identifiers that can be checked in routes
     PREMIUM_FEATURES: List[str] = [
         "gemini_cv_generation",
-        "gemini_cover_letter_generation"
+        "gemini_cover_letter_generation",
+        "cv_upload_and_parse"
         # Add other feature keys here like "career_insights_analysis" if they become API-gated
     ]
 

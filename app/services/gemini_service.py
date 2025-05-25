@@ -370,3 +370,136 @@ class GeminiService:
 
     Return ONLY the ready-to-use cover letter with no additional explanations.
     """
+    
+    async def structure_cv_from_text(self, cv_text: str) -> Dict[str, Any]:
+        """
+        Structures raw CV text into JSON format using Gemini AI.
+        """
+        prompt = self._create_structure_cv_prompt(cv_text)
+
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    self.api_url,
+                    headers={"Content-Type": "application/json"},
+                    params={"key": self.api_key},
+                    json={
+                        "contents": [
+                            {
+                                "parts": [
+                                    {"text": prompt}
+                                ]
+                            }
+                        ],
+                        "generationConfig": {
+                            "temperature": 0.1,  # Lower temperature for more deterministic structuring
+                            "topP": 0.8,
+                            "topK": 40,
+                            "maxOutputTokens": 4096,
+                        }
+                    },
+                    timeout=120.0,
+                )
+
+                print(f"Gemini API response status for structuring CV: {response.status_code}")
+
+                try:
+                    response.raise_for_status()
+                    data = response.json()
+
+                    result_text = data["candidates"][0]["content"]["parts"][0]["text"]
+                    finish_reason = data["candidates"][0].get("finishReason", "UNKNOWN")
+
+                    if finish_reason == "MAX_TOKENS":
+                        print("Warning: Gemini response for structuring CV was truncated due to MAX_TOKENS limit")
+
+                    return self._extract_json(result_text)  # Reuse existing JSON extraction
+
+                except Exception as e:
+                    print(f"Error processing Gemini response for structuring CV: {str(e)}")
+                    print(f"Response content: {response.text if response.text else 'No response content'}")
+                    raise ValueError(f"Failed to process Gemini API response for structuring CV: {str(e)}")
+
+        except Exception as e:
+            print(f"Exception in Gemini API call for structuring CV: {str(e)}")
+            raise ValueError(f"Gemini API error while structuring CV: {str(e)}")
+
+    def _create_structure_cv_prompt(self, cv_text: str) -> str:
+        """
+        Creates a prompt for Gemini to structure raw CV text into JSON.
+        """
+        return f"""
+    You are an expert CV parser and data extractor. Your task is to analyze the following raw CV text and structure it into a precise JSON format.
+
+    RAW CV TEXT:
+    ---
+    {cv_text}
+    ---
+
+    Based on the text above, populate the following JSON structure. Ensure all fields are accurately extracted or inferred if not explicitly stated but strongly implied.
+    If a field cannot be found or reasonably inferred, use an empty string "" for string fields, empty array [] for array fields, or a sensible default (e.g., 0 for relevanceScore if not applicable).
+
+    JSON STRUCTURE TO POPULATE:
+    ```json
+    {{
+    "fullName": "Full name of the candidate",
+    "jobTitle": "Current or most recent job title, or a general professional title",
+    "summary": "A concise professional summary. If not present, try to create a brief one (2-3 lines) based on the overall experience and skills.",
+    "email": "Candidate's email address",
+    "linkedin": "Candidate's LinkedIn profile URL (if present)",
+    "phone": "Candidate's phone number",
+    "location": "Candidate's general location (e.g., City, Country)",
+    "experience": [
+        {{
+        "jobTitle": "Position title",
+        "company": "Company name",
+        "dates": "Employment dates (e.g., MM/YYYY - MM/YYYY or MM/YYYY - Present)",
+        "description": "Key responsibilities and a brief overview of the role. Concisely summarize using bullet points or a short paragraph.",
+        "achievements": [
+            "Quantifiable achievement 1 (if listed)",
+            "Quantifiable achievement 2 (if listed)"
+        ],
+        "relevanceScore": 0 
+        }}
+    ],
+    "education": [
+        {{
+        "degree": "Degree name (e.g., Bachelor of Science in Computer Science)",
+        "institution": "Name of the educational institution",
+        "dates": "Graduation year or period of study (e.g., YYYY or MM/YYYY - MM/YYYY)",
+        "relevanceScore": 0
+        }}
+    ],
+    "skills": [
+        "Categorized skill (e.g., Technical: Python, JavaScript, SQL)",
+        "Categorized skill (e.g., Soft Skills: Communication, Teamwork)"
+    ],
+    "certifications": [
+        "Certification name (if any)"
+    ],
+    "skillGapAnalysis": {{
+        "matchingSkills": [],
+        "missingSkills": [],
+        "overallMatch": 0
+    }}
+    }}
+    GUIDELINES FOR EXTRACTION:
+
+    fullName: Extract the full name.
+    jobTitle: Extract the most prominent or recent job title. If multiple, choose the most senior or relevant.
+    summary: Extract if explicitly provided. If not, create a very brief (1-2 sentence) objective summary based on the content.
+    contact details (email, linkedin, phone, location): Extract as found.
+    experience:
+    For each role, extract jobTitle, company, and dates.
+    description: Summarize key responsibilities.
+    achievements: List 2-3 key achievements, preferably quantifiable. If achievements are embedded in descriptions, extract them.
+    relevanceScore: Leave as 0 for now, this field is not for you to calculate in this step.
+    education:
+    For each entry, extract degree, institution, and dates.
+    relevanceScore: Leave as 0.
+    skills: Attempt to categorize skills if possible (e.g., "Technical Skills", "Languages", "Tools"). If categories are not clear, list them as general skills. Combine related skills.
+    certifications: List any certifications mentioned.
+    skillGapAnalysis: Leave all fields (matchingSkills, missingSkills, overallMatch) as empty arrays or 0. This section is not for this parsing step.
+    Return ONLY the valid JSON object. Do not include any explanatory text before or after the JSON.
+    The entire output must be a single, valid JSON object.
+    """

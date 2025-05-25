@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from app.api.routes import api_router # This should be the main router aggregating others
 from app.api.routes import users as users_router
 from app.api.routes import payments as payments_router
+from app.api.routes import cv_parser as cv_parser_router
 from app.core.config import settings
 from app.core.firebase_admin_setup import initialize_firebase_admin
 
@@ -50,13 +51,19 @@ def get_application() -> FastAPI:
         tags=["Users"]
     )
     
-    # NEW: Include the payments router
+    # Include the payments router
     application.include_router(
         payments_router.router,
         prefix=f"{settings.API_V1_STR}/payments", # e.g. /api/v1/payments
         tags=["Payments"]
     )
-
+    
+    # Include the CV parser router
+    application.include_router(
+        cv_parser_router.router, # Use cv_parser_router.router
+        prefix=f"{settings.API_V1_STR}/cv", # Mounts under /api/v1/cv
+        tags=["CV Tools"] # New tag or reuse "CV Generation"
+    )
 
     return application
 
