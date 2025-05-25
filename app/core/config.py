@@ -71,8 +71,6 @@ class Settings(BaseSettings):
     # This will hold the active plan codes (assigned in the validator)
     PAYSTACK_PLAN_CODES: Optional[Dict[str, str]] = None
 
-    PAYSTACK_WEBHOOK_SECRET: Optional[str] = Field(None)
-
     # Environment Settings
     ENVIRONMENT: str = "development" # Default to development if not set
 
@@ -100,5 +98,5 @@ if not settings.ALLOWED_ORIGINS:
         "chrome-extension://*"
     ]
     
-if settings.ENVIRONMENT.lower() != "development" and not settings.PAYSTACK_WEBHOOK_SECRET:
-    print("WARNING: PAYSTACK_WEBHOOK_SECRET is not set in a non-development environment!")
+if settings.ENVIRONMENT.lower() != "development" and (not settings.PAYSTACK_SECRET_KEY or "placeholder" in settings.PAYSTACK_SECRET_KEY):
+    print("CRITICAL WARNING: The LIVE PAYSTACK_SECRET_KEY (used for webhook verification) is not properly set in a non-development environment!")
