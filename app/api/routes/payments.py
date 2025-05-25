@@ -4,6 +4,7 @@ import hashlib
 import json
 from fastapi import APIRouter, Depends, HTTPException, Request, Header
 from fastapi.responses import RedirectResponse
+from pydantic import BaseModel
 from starlette import status
 from typing import Any, Dict, Optional
 from datetime import datetime, timezone, timedelta
@@ -345,3 +346,25 @@ async def paystack_webhook(
 
     # Acknowledge receipt of the webhook
     return {"status": "success", "message": "Webhook received successfully."}
+
+class AppConfigResponse(BaseModel):
+    environment: str
+    paystack_public_key: str
+    # Add any other config frontend might need
+
+@router.get("/app-config", response_model=AppConfigResponse, tags=["App Configuration"])
+async def get_app_configuration():
+    """
+    Provides essential configuration to the frontend, like the current environment
+    and the correct Paystack public key.
+    """
+    if not settings.PAYSTACK_PUBLIC_KEY or "placeholder" in settings.PAYSTACK_PUBLIC_KEY:
+        print("CRITICAL: Attempted to send unconfigured Paystack public key to frontend.")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, 
+            detail="Payment system configuration is incomplete on the server."
+        )
+    return AppConfigResponse(
+        environment=settings.ENVIRONMENT,
+        paystack_public_key=settings.PAYSTACK_PUBLIC_KEY
+    )

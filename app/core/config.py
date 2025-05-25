@@ -1,9 +1,9 @@
+# app/core/config.py
 import os
 from typing import List, Union, Optional, Dict
 
-from pydantic import field_validator, Field
+from pydantic import field_validator, Field, model_validator
 from pydantic_settings import BaseSettings
-
 
 class Settings(BaseSettings):
     # API Settings
@@ -34,42 +34,48 @@ class Settings(BaseSettings):
         raise ValueError(v)
 
     # Firebase Admin SDK settings
-    # For Render, set FIREBASE_CREDENTIALS_JSON (as JSON string)
-    # OR FIREBASE_SERVICE_ACCOUNT_PATH (as path to secret file) in Render's env vars.
     FIREBASE_CREDENTIALS_JSON: Optional[str] = None
-    FIREBASE_SERVICE_ACCOUNT_PATH_RENDER: Optional[str] = None # Explicit for Render path
-    
-    # For local development, loaded from .env
+    FIREBASE_SERVICE_ACCOUNT_PATH_RENDER: Optional[str] = None
     FIREBASE_SERVICE_ACCOUNT_KEY_PATH_LOCAL: Optional[str] = None
 
     # Gemini API Settings
     GEMINI_API_KEY: str
-    GEMINI_MODEL: str = "gemini-2.0-flash" # Consider if "gemini-1.5-flash" is intended based on typical naming
+    GEMINI_MODEL: str = "gemini-2.0-flash" # User specified
     GEMINI_API_URL: str = "https://generativelanguage.googleapis.com/v1beta/models"
 
-    # Redis Settings (for rate limiting)
-    REDIS_URL: str = ""  # Empty string instead of None
-    
+    # Redis Settings
+    REDIS_URL: str = ""
+
     # Tier-based Rate Limiting Quotas
-    # DAILY_QUOTA is removed as FREE_DAILY_QUOTA and PREMIUM_DAILY_QUOTA are now primary.
-    # If a general fallback is still needed, it can be added back or handled in logic.
     FREE_DAILY_QUOTA: int = 5
-    PREMIUM_DAILY_QUOTA: int = 50
+    PREMIUM_DAILY_QUOTA: int = 50 # This is used for any "pro" tier
+
+    # Paystack Live Keys (expected to be set in environment variables)
+    PAYSTACK_LIVE_SECRET_KEY: str = Field(default="your_live_secret_key_placeholder")
+    PAYSTACK_LIVE_PUBLIC_KEY: str = Field(default="your_live_public_key_placeholder")
+
+    # Paystack Test Keys (expected to be set in environment variables)
+    PAYSTACK_TEST_SECRET_KEY: str = Field(default="your_test_secret_key_placeholder")
+    PAYSTACK_TEST_PUBLIC_KEY: str = Field(default="your_test_public_key_placeholder")
     
-    # Paystack Settings
-    PAYSTACK_SECRET_KEY: str
-    PAYSTACK_PUBLIC_KEY: str
-    PAYSTACK_PLAN_CODES: Dict[str, str] = {
-        "monthly": "PLN_y6ssj3yx0t392cz",
-        "yearly": "PLN_uqktx3mjkn0skcx"
+    # These will be dynamically set based on ENVIRONMENT
+    PAYSTACK_SECRET_KEY: Optional[str] = None
+    PAYSTACK_PUBLIC_KEY: Optional[str] = None
+    
+    # Paystack Plan Codes - User confirmed these are the same for test/live.
+    # These are effectively the 'default' or 'live' codes.
+    PAYSTACK_ACTUAL_PLAN_CODES: Dict[str, str] = {
+        "monthly": "PLN_y6ssj3yx0t392cz", # From user's original config
+        "yearly": "PLN_uqktx3mjkn0skcx"   # From user's original config
     }
-    PAYSTACK_WEBHOOK_SECRET: Optional[str] = Field(None) # Added for explicit declaration, can be set via env
+    # This will hold the active plan codes (assigned in the validator)
+    PAYSTACK_PLAN_CODES: Optional[Dict[str, str]] = None
+
+    PAYSTACK_WEBHOOK_SECRET: Optional[str] = Field(None)
 
     # Environment Settings
-    ENVIRONMENT: str = "development"
-    
-    # Designate which features are premium
-    # Use clear identifiers that can be checked in routes
+    ENVIRONMENT: str = "development" # Default to development if not set
+
     PREMIUM_FEATURES: List[str] = [
         "gemini_cv_generation",
         "gemini_cover_letter_generation",
@@ -80,20 +86,19 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = True
-        extra = 'ignore' # Changed from 'forbid' to 'ignore' as per user's original file
+        extra = 'ignore'
 
 settings = Settings()
 
-# Initialize settings
 if not settings.ALLOWED_ORIGINS:
     settings.ALLOWED_ORIGINS = [
-        "https://jobhunterui.github.io",  # GitHub Pages
-        "http://localhost:8000",  # Local development server
-        "http://localhost:3000",  # Common frontend dev port
-        "http://127.0.0.1:5500", # For local frontend testing (Live Server)
-        "moz-extension://*", # Firefox extension (using wildcard for UUIDs)
-        "chrome-extension://*" # Chrome extension (using wildcard for IDs)
+        "https://jobhunterui.github.io",
+        "http://localhost:8000",
+        "http://localhost:3000",
+        "http://127.0.0.1:5500",
+        "moz-extension://*",
+        "chrome-extension://*"
     ]
     
-if settings.ENVIRONMENT == "production" and not settings.PAYSTACK_WEBHOOK_SECRET:
-    print("WARNING: PAYSTACK_WEBHOOK_SECRET is not set in a production environment!")
+if settings.ENVIRONMENT.lower() != "development" and not settings.PAYSTACK_WEBHOOK_SECRET:
+    print("WARNING: PAYSTACK_WEBHOOK_SECRET is not set in a non-development environment!")
