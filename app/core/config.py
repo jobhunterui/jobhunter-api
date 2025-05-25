@@ -40,7 +40,7 @@ class Settings(BaseSettings):
 
     # Gemini API Settings
     GEMINI_API_KEY: str
-    GEMINI_MODEL: str = "gemini-2.0-flash" # User specified
+    GEMINI_MODEL: str = "gemini-2.0-flash"
     GEMINI_API_URL: str = "https://generativelanguage.googleapis.com/v1beta/models"
 
     # Redis Settings
@@ -48,68 +48,74 @@ class Settings(BaseSettings):
 
     # Tier-based Rate Limiting Quotas
     FREE_DAILY_QUOTA: int = 5
-    PREMIUM_DAILY_QUOTA: int = 50 # This is used for any "pro" tier
+    PREMIUM_DAILY_QUOTA: int = 50
 
-    # Paystack Live Keys (expected to be set in environment variables)
-    PAYSTACK_LIVE_SECRET_KEY: str = Field(default="your_live_secret_key_placeholder")
-    PAYSTACK_LIVE_PUBLIC_KEY: str = Field(default="your_live_public_key_placeholder")
+    # Environment Settings
+    ENVIRONMENT: str = "development"
 
-    # Paystack Test Keys (expected to be set in environment variables)
-    PAYSTACK_TEST_SECRET_KEY: str = Field(default="your_test_secret_key_placeholder")
-    PAYSTACK_TEST_PUBLIC_KEY: str = Field(default="your_test_public_key_placeholder")
+    # Paystack Keys - NO DEFAULTS, must come from environment
+    PAYSTACK_LIVE_SECRET_KEY: str
+    PAYSTACK_LIVE_PUBLIC_KEY: str
+    PAYSTACK_TEST_SECRET_KEY: str
+    PAYSTACK_TEST_PUBLIC_KEY: str
     
     # These will be dynamically set based on ENVIRONMENT
     PAYSTACK_SECRET_KEY: Optional[str] = None
     PAYSTACK_PUBLIC_KEY: Optional[str] = None
     
-    # Paystack Plan Codes - User confirmed these are the same for test/live.
-    # These are effectively the 'default' or 'live' codes.
+    # Paystack Plan Codes (same for both test and live)
     PAYSTACK_ACTUAL_PLAN_CODES: Dict[str, str] = {
-        "monthly": "PLN_y6ssj3yx0t392cz", # From user's original config
-        "yearly": "PLN_uqktx3mjkn0skcx"   # From user's original config
+        "monthly": "PLN_y6ssj3yx0t392cz",
+        "yearly": "PLN_uqktx3mjkn0skcx"
     }
-    # This will hold the active plan codes (assigned in the validator)
     PAYSTACK_PLAN_CODES: Optional[Dict[str, str]] = None
-
-    # Environment Settings
-    ENVIRONMENT: str = "development" # Default to development if not set
 
     PREMIUM_FEATURES: List[str] = [
         "gemini_cv_generation",
         "gemini_cover_letter_generation",
         "cv_upload_and_parse"
-        # Add other feature keys here like "career_insights_analysis" if they become API-gated
     ]
 
     @model_validator(mode="after")
     def set_active_paystack_keys_and_defaults(self) -> 'Settings':
-        env = self.ENVIRONMENT.lower()
+        env = self.ENVIRONMENT.lower().strip()
         print(f"INFO: [Config.Validator] Environment set to: '{env}'")
+        
+        # Debug logging - show what we actually got from environment
+        print(f"DEBUG: [Config.Validator] Raw values loaded:")
+        print(f"  PAYSTACK_LIVE_SECRET_KEY starts with: {self.PAYSTACK_LIVE_SECRET_KEY[:20] if self.PAYSTACK_LIVE_SECRET_KEY else 'NONE'}...")
+        print(f"  PAYSTACK_LIVE_PUBLIC_KEY starts with: {self.PAYSTACK_LIVE_PUBLIC_KEY[:20] if self.PAYSTACK_LIVE_PUBLIC_KEY else 'NONE'}...")
+        print(f"  PAYSTACK_TEST_SECRET_KEY starts with: {self.PAYSTACK_TEST_SECRET_KEY[:20] if self.PAYSTACK_TEST_SECRET_KEY else 'NONE'}...")
+        print(f"  PAYSTACK_TEST_PUBLIC_KEY starts with: {self.PAYSTACK_TEST_PUBLIC_KEY[:20] if self.PAYSTACK_TEST_PUBLIC_KEY else 'NONE'}...")
+        
         if env == "production":
+            # Validate live keys are present and not placeholder values
+            if not self.PAYSTACK_LIVE_SECRET_KEY or self.PAYSTACK_LIVE_SECRET_KEY.startswith("your_"):
+                raise ValueError(f"PAYSTACK_LIVE_SECRET_KEY must be set in environment variables for production. Got: {self.PAYSTACK_LIVE_SECRET_KEY[:30] if self.PAYSTACK_LIVE_SECRET_KEY else 'None'}")
+            
+            if not self.PAYSTACK_LIVE_PUBLIC_KEY or self.PAYSTACK_LIVE_PUBLIC_KEY.startswith("your_"):
+                raise ValueError(f"PAYSTACK_LIVE_PUBLIC_KEY must be set in environment variables for production. Got: {self.PAYSTACK_LIVE_PUBLIC_KEY[:30] if self.PAYSTACK_LIVE_PUBLIC_KEY else 'None'}")
+            
             self.PAYSTACK_SECRET_KEY = self.PAYSTACK_LIVE_SECRET_KEY
             self.PAYSTACK_PUBLIC_KEY = self.PAYSTACK_LIVE_PUBLIC_KEY
-            pk_info = f"...{self.PAYSTACK_PUBLIC_KEY[-4:]}" if self.PAYSTACK_PUBLIC_KEY and len(self.PAYSTACK_PUBLIC_KEY) > 4 else "N/A (or too short)"
-            print(f"INFO: [Config.Validator] Using LIVE Paystack keys. Public key ends with: {pk_info}")
-            if "placeholder" in self.PAYSTACK_SECRET_KEY or "placeholder" in self.PAYSTACK_PUBLIC_KEY:
-                print(f"WARNING: [Config.Validator] Production environment selected, but LIVE Paystack keys appear to be placeholders.")
-
-        elif env == "development":
+            print("SUCCESS: [Config.Validator] Using LIVE Paystack keys for PRODUCTION environment")
+            print(f"  Active SECRET_KEY starts with: {self.PAYSTACK_SECRET_KEY[:15]}...")
+            print(f"  Active PUBLIC_KEY starts with: {self.PAYSTACK_PUBLIC_KEY[:15]}...")
+            
+        else:  # development or any other value defaults to test mode
             self.PAYSTACK_SECRET_KEY = self.PAYSTACK_TEST_SECRET_KEY
             self.PAYSTACK_PUBLIC_KEY = self.PAYSTACK_TEST_PUBLIC_KEY
-            pk_info = f"...{self.PAYSTACK_PUBLIC_KEY[-4:]}" if self.PAYSTACK_PUBLIC_KEY and len(self.PAYSTACK_PUBLIC_KEY) > 4 else "N/A (or too short)"
-            print(f"INFO: [Config.Validator] Using TEST Paystack keys. Public key ends with: {pk_info}")
-            if "placeholder" in self.PAYSTACK_SECRET_KEY or "placeholder" in self.PAYSTACK_PUBLIC_KEY:
-                print(f"WARNING: [Config.Validator] Development environment selected, but TEST Paystack keys appear to be placeholders.")
-        else:
-            print(f"WARNING: [Config.Validator] Unknown ENVIRONMENT '{self.ENVIRONMENT}'. Defaulting to TEST Paystack keys.")
-            self.PAYSTACK_SECRET_KEY = self.PAYSTACK_TEST_SECRET_KEY
-            self.PAYSTACK_PUBLIC_KEY = self.PAYSTACK_TEST_PUBLIC_KEY
+            print("INFO: [Config.Validator] Using TEST Paystack keys for DEVELOPMENT environment")
+            
+            if self.PAYSTACK_TEST_SECRET_KEY and self.PAYSTACK_TEST_SECRET_KEY.startswith("your_"):
+                print("WARNING: [Config.Validator] TEST Paystack keys appear to be placeholders.")
 
+        # Set plan codes (same for both environments)
         self.PAYSTACK_PLAN_CODES = self.PAYSTACK_ACTUAL_PLAN_CODES
         print(f"INFO: [Config.Validator] Active Paystack Plan Codes: {self.PAYSTACK_PLAN_CODES}")
         
-        # Handle ALLOWED_ORIGINS logic as you had it
-        if not self.ALLOWED_ORIGINS: # Checking if it's an empty list after initial load
+        # Handle ALLOWED_ORIGINS
+        if not self.ALLOWED_ORIGINS:
             self.ALLOWED_ORIGINS = [
                 "https://jobhunterui.github.io",
                 "http://localhost:8000",
@@ -118,9 +124,10 @@ class Settings(BaseSettings):
                 "moz-extension://*",
                 "chrome-extension://*"
             ]
-            print(f"INFO: [Config.Validator] Defaulting ALLOWED_ORIGINS as it was empty: {self.ALLOWED_ORIGINS}")
+            print(f"INFO: [Config.Validator] Defaulting ALLOWED_ORIGINS: {self.ALLOWED_ORIGINS}")
         else:
-            print(f"INFO: [Config.Validator] Using ALLOWED_ORIGINS from environment or explicitly set: {self.ALLOWED_ORIGINS}")
+            print(f"INFO: [Config.Validator] Using ALLOWED_ORIGINS from environment: {self.ALLOWED_ORIGINS}")
+            
         return self
 
     class Config:
@@ -128,11 +135,20 @@ class Settings(BaseSettings):
         case_sensitive = True
         extra = 'ignore'
 
-settings = Settings()
+# Create settings instance
+try:
+    settings = Settings()
+    print("SUCCESS: [Config] Settings loaded successfully")
+except Exception as e:
+    print(f"CRITICAL ERROR: [Config] Failed to load settings: {e}")
+    print("Available environment variables:")
+    for key in os.environ:
+        if 'PAYSTACK' in key:
+            value = os.environ[key]
+            print(f"  {key} = {value[:20]}..." if len(value) > 20 else f"  {key} = {value}")
+    raise
 
-if settings.ENVIRONMENT.lower() != "development" and (not settings.PAYSTACK_SECRET_KEY or "placeholder" in settings.PAYSTACK_SECRET_KEY): #
-    print("CRITICAL WARNING: The LIVE PAYSTACK_SECRET_KEY (used for webhook verification) is not properly set in a non-development environment!") #
-
-# Adding a similar check for the active public key for completeness, consistent with the validator's logging
-if settings.PAYSTACK_PUBLIC_KEY is None or "placeholder" in settings.PAYSTACK_PUBLIC_KEY:
-    print(f"CRITICAL WARNING: [Config] The active PAYSTACK_PUBLIC_KEY is not properly set or is a placeholder for ENVIRONMENT='{settings.ENVIRONMENT}'!")
+# Final validation
+print(f"FINAL CHECK: Environment={settings.ENVIRONMENT}")
+print(f"FINAL CHECK: Active secret key starts with: {settings.PAYSTACK_SECRET_KEY[:15] if settings.PAYSTACK_SECRET_KEY else 'NONE'}...")
+print(f"FINAL CHECK: Active public key starts with: {settings.PAYSTACK_PUBLIC_KEY[:15] if settings.PAYSTACK_PUBLIC_KEY else 'NONE'}...")
