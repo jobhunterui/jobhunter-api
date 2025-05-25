@@ -70,7 +70,7 @@ async def initialize_transaction(
         )
 
     headers = {
-        "Authorization": f"Bearer {settings.PAYSTACK_SECRET_KEY}",
+        "Authorization": f"Bearer {settings.FINAL_PAYSTACK_SECRET_KEY}",
         "Content-Type": "application/json",
     }
     # Generate a unique reference for the transaction, including UID for easy mapping
@@ -161,8 +161,8 @@ async def paystack_webhook(
 
     # Verify the webhook signature
     expected_signature = hmac.new(
-        settings.PAYSTACK_SECRET_KEY.encode('utf-8'),
-        raw_body, # Use the raw byte body
+        settings.FINAL_PAYSTACK_SECRET_KEY.encode('utf-8'),
+        raw_body,
         hashlib.sha512
     ).hexdigest()
 
@@ -366,5 +366,5 @@ async def get_app_configuration():
         )
     return AppConfigResponse(
         environment=settings.ENVIRONMENT,
-        paystack_public_key=settings.PAYSTACK_PUBLIC_KEY
+        paystack_public_key=settings.FINAL_PAYSTACK_PUBLIC_KEY
     )

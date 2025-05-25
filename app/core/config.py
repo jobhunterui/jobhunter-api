@@ -53,15 +53,19 @@ class Settings(BaseSettings):
     # Environment Settings
     ENVIRONMENT: str = "development"
 
-    # Paystack Keys - NO DEFAULTS, must come from environment
-    PAYSTACK_LIVE_SECRET_KEY: str
-    PAYSTACK_LIVE_PUBLIC_KEY: str
+    # Paystack Keys - Match what's actually in Render environment
+    PAYSTACK_SECRET_KEY: str  # This is the live secret key in Render
+    PAYSTACK_PUBLIC_KEY: str  # This is the live public key in Render  
     PAYSTACK_TEST_SECRET_KEY: str
     PAYSTACK_TEST_PUBLIC_KEY: str
     
+    # These will be set based on environment
+    ACTIVE_PAYSTACK_SECRET_KEY: Optional[str] = None
+    ACTIVE_PAYSTACK_PUBLIC_KEY: Optional[str] = None
+    
     # These will be dynamically set based on ENVIRONMENT
-    PAYSTACK_SECRET_KEY: Optional[str] = None
-    PAYSTACK_PUBLIC_KEY: Optional[str] = None
+    FINAL_PAYSTACK_SECRET_KEY: Optional[str] = None
+    FINAL_PAYSTACK_PUBLIC_KEY: Optional[str] = None
     
     # Paystack Plan Codes (same for both test and live)
     PAYSTACK_ACTUAL_PLAN_CODES: Dict[str, str] = {
@@ -83,28 +87,28 @@ class Settings(BaseSettings):
         
         # Debug logging - show what we actually got from environment
         print(f"DEBUG: [Config.Validator] Raw values loaded:")
-        print(f"  PAYSTACK_LIVE_SECRET_KEY starts with: {self.PAYSTACK_LIVE_SECRET_KEY[:20] if self.PAYSTACK_LIVE_SECRET_KEY else 'NONE'}...")
-        print(f"  PAYSTACK_LIVE_PUBLIC_KEY starts with: {self.PAYSTACK_LIVE_PUBLIC_KEY[:20] if self.PAYSTACK_LIVE_PUBLIC_KEY else 'NONE'}...")
+        print(f"  PAYSTACK_SECRET_KEY (live) starts with: {self.PAYSTACK_SECRET_KEY[:20] if self.PAYSTACK_SECRET_KEY else 'NONE'}...")
+        print(f"  PAYSTACK_PUBLIC_KEY (live) starts with: {self.PAYSTACK_PUBLIC_KEY[:20] if self.PAYSTACK_PUBLIC_KEY else 'NONE'}...")
         print(f"  PAYSTACK_TEST_SECRET_KEY starts with: {self.PAYSTACK_TEST_SECRET_KEY[:20] if self.PAYSTACK_TEST_SECRET_KEY else 'NONE'}...")
         print(f"  PAYSTACK_TEST_PUBLIC_KEY starts with: {self.PAYSTACK_TEST_PUBLIC_KEY[:20] if self.PAYSTACK_TEST_PUBLIC_KEY else 'NONE'}...")
         
         if env == "production":
-            # Validate live keys are present and not placeholder values
-            if not self.PAYSTACK_LIVE_SECRET_KEY or self.PAYSTACK_LIVE_SECRET_KEY.startswith("your_"):
-                raise ValueError(f"PAYSTACK_LIVE_SECRET_KEY must be set in environment variables for production. Got: {self.PAYSTACK_LIVE_SECRET_KEY[:30] if self.PAYSTACK_LIVE_SECRET_KEY else 'None'}")
+            # Use the live keys that are already loaded
+            if not self.PAYSTACK_SECRET_KEY or self.PAYSTACK_SECRET_KEY.startswith("your_"):
+                raise ValueError(f"PAYSTACK_SECRET_KEY (live) must be set in environment variables for production. Got: {self.PAYSTACK_SECRET_KEY[:30] if self.PAYSTACK_SECRET_KEY else 'None'}")
             
-            if not self.PAYSTACK_LIVE_PUBLIC_KEY or self.PAYSTACK_LIVE_PUBLIC_KEY.startswith("your_"):
-                raise ValueError(f"PAYSTACK_LIVE_PUBLIC_KEY must be set in environment variables for production. Got: {self.PAYSTACK_LIVE_PUBLIC_KEY[:30] if self.PAYSTACK_LIVE_PUBLIC_KEY else 'None'}")
+            if not self.PAYSTACK_PUBLIC_KEY or self.PAYSTACK_PUBLIC_KEY.startswith("your_"):
+                raise ValueError(f"PAYSTACK_PUBLIC_KEY (live) must be set in environment variables for production. Got: {self.PAYSTACK_PUBLIC_KEY[:30] if self.PAYSTACK_PUBLIC_KEY else 'None'}")
             
-            self.PAYSTACK_SECRET_KEY = self.PAYSTACK_LIVE_SECRET_KEY
-            self.PAYSTACK_PUBLIC_KEY = self.PAYSTACK_LIVE_PUBLIC_KEY
+            self.FINAL_PAYSTACK_SECRET_KEY = self.PAYSTACK_SECRET_KEY
+            self.FINAL_PAYSTACK_PUBLIC_KEY = self.PAYSTACK_PUBLIC_KEY
             print("SUCCESS: [Config.Validator] Using LIVE Paystack keys for PRODUCTION environment")
-            print(f"  Active SECRET_KEY starts with: {self.PAYSTACK_SECRET_KEY[:15]}...")
-            print(f"  Active PUBLIC_KEY starts with: {self.PAYSTACK_PUBLIC_KEY[:15]}...")
+            print(f"  Active SECRET_KEY starts with: {self.FINAL_PAYSTACK_SECRET_KEY[:15]}...")
+            print(f"  Active PUBLIC_KEY starts with: {self.FINAL_PAYSTACK_PUBLIC_KEY[:15]}...")
             
         else:  # development or any other value defaults to test mode
-            self.PAYSTACK_SECRET_KEY = self.PAYSTACK_TEST_SECRET_KEY
-            self.PAYSTACK_PUBLIC_KEY = self.PAYSTACK_TEST_PUBLIC_KEY
+            self.FINAL_PAYSTACK_SECRET_KEY = self.PAYSTACK_TEST_SECRET_KEY
+            self.FINAL_PAYSTACK_PUBLIC_KEY = self.PAYSTACK_TEST_PUBLIC_KEY
             print("INFO: [Config.Validator] Using TEST Paystack keys for DEVELOPMENT environment")
             
             if self.PAYSTACK_TEST_SECRET_KEY and self.PAYSTACK_TEST_SECRET_KEY.startswith("your_"):
@@ -150,5 +154,5 @@ except Exception as e:
 
 # Final validation
 print(f"FINAL CHECK: Environment={settings.ENVIRONMENT}")
-print(f"FINAL CHECK: Active secret key starts with: {settings.PAYSTACK_SECRET_KEY[:15] if settings.PAYSTACK_SECRET_KEY else 'NONE'}...")
-print(f"FINAL CHECK: Active public key starts with: {settings.PAYSTACK_PUBLIC_KEY[:15] if settings.PAYSTACK_PUBLIC_KEY else 'NONE'}...")
+print(f"FINAL CHECK: Active secret key starts with: {settings.FINAL_PAYSTACK_SECRET_KEY[:15] if settings.FINAL_PAYSTACK_SECRET_KEY else 'NONE'}...")
+print(f"FINAL CHECK: Active public key starts with: {settings.FINAL_PAYSTACK_PUBLIC_KEY[:15] if settings.FINAL_PAYSTACK_PUBLIC_KEY else 'NONE'}...")
