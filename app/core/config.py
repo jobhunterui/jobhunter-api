@@ -81,6 +81,48 @@ class Settings(BaseSettings):
         # Add other feature keys here like "career_insights_analysis" if they become API-gated
     ]
 
+    @model_validator(mode="after")
+    def set_active_paystack_keys_and_defaults(self) -> 'Settings':
+        env = self.ENVIRONMENT.lower()
+        print(f"INFO: [Config.Validator] Environment set to: '{env}'")
+        if env == "production":
+            self.PAYSTACK_SECRET_KEY = self.PAYSTACK_LIVE_SECRET_KEY
+            self.PAYSTACK_PUBLIC_KEY = self.PAYSTACK_LIVE_PUBLIC_KEY
+            pk_info = f"...{self.PAYSTACK_PUBLIC_KEY[-4:]}" if self.PAYSTACK_PUBLIC_KEY and len(self.PAYSTACK_PUBLIC_KEY) > 4 else "N/A (or too short)"
+            print(f"INFO: [Config.Validator] Using LIVE Paystack keys. Public key ends with: {pk_info}")
+            if "placeholder" in self.PAYSTACK_SECRET_KEY or "placeholder" in self.PAYSTACK_PUBLIC_KEY:
+                print(f"WARNING: [Config.Validator] Production environment selected, but LIVE Paystack keys appear to be placeholders.")
+
+        elif env == "development":
+            self.PAYSTACK_SECRET_KEY = self.PAYSTACK_TEST_SECRET_KEY
+            self.PAYSTACK_PUBLIC_KEY = self.PAYSTACK_TEST_PUBLIC_KEY
+            pk_info = f"...{self.PAYSTACK_PUBLIC_KEY[-4:]}" if self.PAYSTACK_PUBLIC_KEY and len(self.PAYSTACK_PUBLIC_KEY) > 4 else "N/A (or too short)"
+            print(f"INFO: [Config.Validator] Using TEST Paystack keys. Public key ends with: {pk_info}")
+            if "placeholder" in self.PAYSTACK_SECRET_KEY or "placeholder" in self.PAYSTACK_PUBLIC_KEY:
+                print(f"WARNING: [Config.Validator] Development environment selected, but TEST Paystack keys appear to be placeholders.")
+        else:
+            print(f"WARNING: [Config.Validator] Unknown ENVIRONMENT '{self.ENVIRONMENT}'. Defaulting to TEST Paystack keys.")
+            self.PAYSTACK_SECRET_KEY = self.PAYSTACK_TEST_SECRET_KEY
+            self.PAYSTACK_PUBLIC_KEY = self.PAYSTACK_TEST_PUBLIC_KEY
+
+        self.PAYSTACK_PLAN_CODES = self.PAYSTACK_ACTUAL_PLAN_CODES
+        print(f"INFO: [Config.Validator] Active Paystack Plan Codes: {self.PAYSTACK_PLAN_CODES}")
+        
+        # Handle ALLOWED_ORIGINS logic as you had it
+        if not self.ALLOWED_ORIGINS: # Checking if it's an empty list after initial load
+            self.ALLOWED_ORIGINS = [
+                "https://jobhunterui.github.io",
+                "http://localhost:8000",
+                "http://localhost:3000",
+                "http://127.0.0.1:5500",
+                "moz-extension://*",
+                "chrome-extension://*"
+            ]
+            print(f"INFO: [Config.Validator] Defaulting ALLOWED_ORIGINS as it was empty: {self.ALLOWED_ORIGINS}")
+        else:
+            print(f"INFO: [Config.Validator] Using ALLOWED_ORIGINS from environment or explicitly set: {self.ALLOWED_ORIGINS}")
+        return self
+
     class Config:
         env_file = ".env"
         case_sensitive = True
@@ -88,15 +130,9 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
-if not settings.ALLOWED_ORIGINS:
-    settings.ALLOWED_ORIGINS = [
-        "https://jobhunterui.github.io",
-        "http://localhost:8000",
-        "http://localhost:3000",
-        "http://127.0.0.1:5500",
-        "moz-extension://*",
-        "chrome-extension://*"
-    ]
-    
-if settings.ENVIRONMENT.lower() != "development" and (not settings.PAYSTACK_SECRET_KEY or "placeholder" in settings.PAYSTACK_SECRET_KEY):
-    print("CRITICAL WARNING: The LIVE PAYSTACK_SECRET_KEY (used for webhook verification) is not properly set in a non-development environment!")
+if settings.ENVIRONMENT.lower() != "development" and (not settings.PAYSTACK_SECRET_KEY or "placeholder" in settings.PAYSTACK_SECRET_KEY): #
+    print("CRITICAL WARNING: The LIVE PAYSTACK_SECRET_KEY (used for webhook verification) is not properly set in a non-development environment!") #
+
+# Adding a similar check for the active public key for completeness, consistent with the validator's logging
+if settings.PAYSTACK_PUBLIC_KEY is None or "placeholder" in settings.PAYSTACK_PUBLIC_KEY:
+    print(f"CRITICAL WARNING: [Config] The active PAYSTACK_PUBLIC_KEY is not properly set or is a placeholder for ENVIRONMENT='{settings.ENVIRONMENT}'!")
