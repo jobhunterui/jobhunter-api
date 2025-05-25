@@ -23,42 +23,67 @@ class RateLimiter:
 
     async def check_limit(self, user_uid: str, subscription_tier: str) -> Tuple[int, bool]:
         """
-        Check if the rate limit has been exceeded for a specific user and tier.
+        Check if the rate limit has been exceeded for a specific user and tier using Redis.
         Returns (remaining_requests, limit_reached)
         """
-        current_day = int(time.time() // 86400) # Days since epoch
-        user_data = self.user_counters.get(user_uid)
-        
-        quota_for_tier = self._get_quota_for_tier(subscription_tier)
+        if not hasattr(self, 'redis') or self.redis is None:
+            print("WARNING: Redis client not available in RedisRateLimiter.check_limit. Falling back to in-memory.")
+            fallback = RateLimiter()
+            return await fallback.check_limit(user_uid, subscription_tier)
 
-        if user_data is None or user_data.get("reset_date") < current_day:
-            # New user for today or reset needed
-            self.user_counters[user_uid] = {"count": 0, "reset_date": current_day}
-            current_count = 0
-        else:
-            current_count = user_data["count"]
+        day_key = f"{self.key_prefix}u:{user_uid}:d:{int(time.time() // 86400)}" 
         
-        remaining = max(0, quota_for_tier - current_count)
-        limit_reached = remaining <= 0 # True if no requests remaining or negative (should not happen with max(0,...))
+        try:
+            count_bytes = self.redis.get(day_key)
+            count = int(count_bytes) if count_bytes is not None else 0
+        except redis.exceptions.RedisError as e:
+            print(f"Redis GET error in check_limit for key {day_key}: {e}. Falling back to in-memory.")
+            fallback = RateLimiter()
+            return await fallback.check_limit(user_uid, subscription_tier)
+        except ValueError:
+            print(f"Redis value for key {day_key} is not an integer. Falling back to in-memory.")
+            fallback = RateLimiter()
+            return await fallback.check_limit(user_uid, subscription_tier)
+        except Exception as e:
+            print(f"Unexpected error in Redis check_limit: {e}. Falling back to in-memory.")
+            fallback = RateLimiter()
+            return await fallback.check_limit(user_uid, subscription_tier)
+
+        quota_for_tier = self._get_quota_for_tier(subscription_tier)
+        remaining = max(0, quota_for_tier - count) 
+        limit_reached = remaining <= 0 
         
         return remaining, limit_reached
 
-    async def increment(self, user_uid: str, subscription_tier: str) -> int: # Added subscription_tier for consistency, though not directly used in this in-memory version's increment logic beyond setting up the counter if missing.
+    async def increment(self, user_uid: str, subscription_tier: str) -> int: 
         """
-        Increment the request counter for a specific user.
-        Returns the new count for that user.
+        Increment the request counter for a specific user in Redis.
+        Returns the new count.
         """
-        current_day = int(time.time() // 86400) # Days since epoch
-        user_data = self.user_counters.get(user_uid)
+        if not hasattr(self, 'redis') or self.redis is None:
+            print("WARNING: Redis client not available in RedisRateLimiter.increment. Falling back to in-memory.")
+            fallback = RateLimiter()
+            return await fallback.increment(user_uid, subscription_tier)
+
+        day_key = f"{self.key_prefix}u:{user_uid}:d:{int(time.time() // 86400)}" 
         
-        # Ensures reset if increment is called before check_limit on a new day,
-        # or if user_data is missing.
-        if user_data is None or user_data.get("reset_date") < current_day:
-            self.user_counters[user_uid] = {"count": 1, "reset_date": current_day}
-            return 1
-        else:
-            user_data["count"] += 1
-            return user_data["count"]
+        new_count = 0
+        try:
+            pipe = self.redis.pipeline() 
+            pipe.incr(day_key) 
+            pipe.expire(day_key, 60 * 60 * 48) # 48 hours 
+            results = pipe.execute() 
+            new_count = results[0] if results and len(results) > 0 else 0
+        except redis.exceptions.RedisError as e:
+            print(f"Redis pipeline error in increment for key {day_key}: {e}. Falling back to in-memory.")
+            fallback = RateLimiter()
+            return await fallback.increment(user_uid, subscription_tier)
+        except Exception as e:
+            print(f"Unexpected error in Redis increment: {e}. Falling back to in-memory.")
+            fallback = RateLimiter()
+            return await fallback.increment(user_uid, subscription_tier)
+        
+        return new_count
 
 
 # If Redis is configured, use a Redis-based rate limiter instead
@@ -151,14 +176,17 @@ if settings.REDIS_URL:
     try:
         # Temporarily instantiate to check connection without replacing global instance yet
         temp_redis_limiter = RedisRateLimiter()
-        if hasattr(temp_redis_limiter, 'redis') and temp_redis_limiter.redis.ping():
-            RateLimiter = RedisRateLimiter 
-            print("Using RedisRateLimiter.")
+        if hasattr(temp_redis_limiter, 'redis'):
+            try:
+                temp_redis_limiter.redis.ping()
+                RateLimiter = RedisRateLimiter 
+                print("Using RedisRateLimiter.")
+            except Exception as e:
+                print(f"Redis ping failed: {e}. Using in-memory RateLimiter.")
+                # RateLimiter remains the default in-memory version
         else:
-            print("Failed to connect to Redis or ping failed. Using in-memory RateLimiter.")
+            print("Redis client not initialized. Using in-memory RateLimiter.")
             # RateLimiter remains the default in-memory version
-    except redis.exceptions.ConnectionError:
-        print("Redis connection failed. Using in-memory RateLimiter.")
+    except Exception as e:
+        print(f"Error during RedisRateLimiter setup: {e}. Using in-memory RateLimiter.")
         # RateLimiter remains the default in-memory version
-    except Exception as e: # Catch other potential errors during Redis init
-        print(f"An unexpected error occurred during RedisRateLimiter initialization: {e}. Using in-memory RateLimiter.")

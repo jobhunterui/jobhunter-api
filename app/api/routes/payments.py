@@ -1,6 +1,7 @@
 import httpx
 import hmac
 import hashlib
+import json
 from fastapi import APIRouter, Depends, HTTPException, Request, Header
 from fastapi.responses import RedirectResponse
 from starlette import status
@@ -201,9 +202,28 @@ async def paystack_webhook(
 
 
     if not user_uid_from_event:
-        print(f"Critical Webhook Error: Could not determine user UID for event: {event_type}, data: {event_data}")
-        # Still return 200 to Paystack to acknowledge receipt, but log this as a critical issue.
-        return {"status": "error", "message": "User UID could not be determined from webhook."}
+        # CRITICAL: Payment received but can't identify user
+        print(f"CRITICAL WEBHOOK ERROR: Payment received but cannot determine user UID for event: {event_type}")
+        print(f"Full event data for manual processing: {json.dumps(event_data)}")
+        
+        # Try to extract any identifying information for manual recovery
+        customer_email = None
+        if 'customer' in event_data and 'email' in event_data.get('customer', {}):
+            customer_email = event_data['customer']['email']
+            print(f"Customer email found: {customer_email} - Manual intervention required")
+        
+        # Log critical information for manual recovery
+        critical_log = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "event_type": event_type,
+            "customer_email": customer_email,
+            "event_data": event_data
+        }
+        print(f"MANUAL_RECOVERY_REQUIRED: {json.dumps(critical_log)}")
+        
+        # IMPORTANT: Still return success to Paystack to prevent endless retries
+        # This needs manual intervention but we don't want Paystack to keep retrying
+        return {"status": "success", "message": "Webhook received - manual processing required"}
 
 
     # Process based on event type
