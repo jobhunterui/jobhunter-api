@@ -2,20 +2,15 @@
 import firebase_admin
 from firebase_admin import firestore
 from datetime import datetime, timezone
-from app.schemas.user import UserSubscription, UserDBCreate #
+from app.schemas.user import UserSubscription, UserDBCreate
 from typing import Dict, Optional
-from fastapi.concurrency import run_in_threadpool #
-from app.schemas.payment import PaystackWebhookPlan
+from fastapi.concurrency import run_in_threadpool
 
 USERS_COLLECTION = "users"
 
 def get_firestore_db():
     """Initializes and returns a Firestore client instance."""
     if not firebase_admin._apps:
-        # This should ideally be handled by the application startup lifespan event
-        # but as a fallback, or if called independently.
-        # Consider how firebase_admin_setup.py is invoked in your app lifecycle.
-        # For now, assuming it's initialized at startup.
         pass # Assuming Firebase Admin is initialized via lifespan in server.py
     return firestore.client()
 
@@ -25,41 +20,75 @@ async def get_or_create_user(uid: str, email: str) -> Dict:
     If the user does not exist, it creates a new user document with default
     free subscription status and a createdAt timestamp.
     Returns the user document data as a dictionary.
+    
+    IMPORTANT: This should return USER PROFILE data (uid, email, created_at, subscription)
+    NOT application data (savedJobs, profileData, etc.)
     """
     db = get_firestore_db()
     user_ref = db.collection(USERS_COLLECTION).document(uid)
     
-    user_doc = await run_in_threadpool(user_ref.get) #
+    user_doc = await run_in_threadpool(user_ref.get)
 
     if user_doc.exists:
         user_data = user_doc.to_dict()
-        if 'createdAt' in user_data and hasattr(user_data['createdAt'], 'ToDatetime'): #
-            user_data['createdAt'] = user_data['createdAt'].ToDatetime() #
-        elif 'created_at' in user_data and hasattr(user_data['created_at'], 'ToDatetime'): #
-            user_data['created_at'] = user_data['created_at'].ToDatetime() #
+        
+        # Ensure this is user profile data, not application data
+        if "savedJobs" in user_data or "profileData" in user_data:
+            print(f"WARNING: User document {uid} contains application data instead of profile data")
+            print(f"Document keys: {list(user_data.keys())}")
+            
+            # Extract user profile data if it exists
+            profile_data = {
+                "uid": uid,
+                "email": email,
+                "created_at": user_data.get("created_at", datetime.now(timezone.utc)),
+                "subscription": user_data.get("subscription", {
+                    "tier": "free",
+                    "status": "active"
+                })
+            }
+            
+            # Save the corrected profile data back to Firestore
+            await run_in_threadpool(user_ref.set, profile_data)
+            print(f"INFO: Corrected user profile data for UID {uid}")
+            return profile_data
+        
+        # Convert Firestore timestamps if needed
+        if 'created_at' in user_data and hasattr(user_data['created_at'], 'ToDatetime'):
+            user_data['created_at'] = user_data['created_at'].ToDatetime()
 
-        if 'subscription' in user_data: #
-            for key in ['current_period_starts_at', 'current_period_ends_at', 'cancellation_effective_date']: #
+        if 'subscription' in user_data:
+            for key in ['current_period_starts_at', 'current_period_ends_at', 'cancellation_effective_date']:
                 if key in user_data['subscription'] and user_data['subscription'][key] and \
-                    hasattr(user_data['subscription'][key], 'ToDatetime'): #
-                    user_data['subscription'][key] = user_data['subscription'][key].ToDatetime() #
+                    hasattr(user_data['subscription'][key], 'ToDatetime'):
+                    user_data['subscription'][key] = user_data['subscription'][key].ToDatetime()
+        
+        # Ensure required fields exist
+        if "uid" not in user_data:
+            user_data["uid"] = uid
+        if "email" not in user_data:
+            user_data["email"] = email
+            
         return user_data
     else:
-        current_time_utc = datetime.now(timezone.utc) #
-        default_subscription = UserSubscription( #
-            tier="free", #
-            status="active", #
+        # Create new user with proper structure
+        current_time_utc = datetime.now(timezone.utc)
+        default_subscription = UserSubscription(
+            tier="free",
+            status="active",
         )
         
-        new_user_data = UserDBCreate( #
+        new_user_data = UserDBCreate(
             uid=uid,
             email=email,
-            created_at=current_time_utc, #
-            subscription=default_subscription #
+            created_at=current_time_utc,
+            subscription=default_subscription
         )
         
-        user_data_to_set = new_user_data.model_dump() #
-        await run_in_threadpool(user_ref.set, user_data_to_set) #
+        user_data_to_set = new_user_data.model_dump()
+        await run_in_threadpool(user_ref.set, user_data_to_set)
+        
+        print(f"INFO: Created new user profile for UID {uid}")
         return user_data_to_set
 
 async def get_user_profile_data(uid: str) -> Optional[Dict]:
@@ -70,18 +99,18 @@ async def get_user_profile_data(uid: str) -> Optional[Dict]:
     """
     db = get_firestore_db()
     user_ref = db.collection(USERS_COLLECTION).document(uid)
-    user_doc = await run_in_threadpool(user_ref.get) #
+    user_doc = await run_in_threadpool(user_ref.get)
 
     if user_doc.exists:
         user_data = user_doc.to_dict()
-        if 'created_at' in user_data and hasattr(user_data['created_at'], 'ToDatetime'): #
-            user_data['created_at'] = user_data['created_at'].ToDatetime() #
+        if 'created_at' in user_data and hasattr(user_data['created_at'], 'ToDatetime'):
+            user_data['created_at'] = user_data['created_at'].ToDatetime()
         
-        if 'subscription' in user_data and isinstance(user_data['subscription'], dict): #
+        if 'subscription' in user_data and isinstance(user_data['subscription'], dict):
             subscription_data = user_data['subscription']
-            for field_name in ['current_period_starts_at', 'current_period_ends_at', 'cancellation_effective_date']: #
-                if field_name in subscription_data and hasattr(subscription_data[field_name], 'ToDatetime'): #
-                    subscription_data[field_name] = subscription_data[field_name].ToDatetime() #
+            for field_name in ['current_period_starts_at', 'current_period_ends_at', 'cancellation_effective_date']:
+                if field_name in subscription_data and hasattr(subscription_data[field_name], 'ToDatetime'):
+                    subscription_data[field_name] = subscription_data[field_name].ToDatetime()
         return user_data
     return None
 
@@ -91,17 +120,17 @@ async def get_user_subscription_object(uid: str) -> Optional[UserSubscription]:
     and returns it as a UserSubscription Pydantic object.
     Returns None if the user or subscription data is not found.
     """
-    user_data = await get_user_profile_data(uid) #
-    if user_data and 'subscription' in user_data: #
+    user_data = await get_user_profile_data(uid)
+    if user_data and 'subscription' in user_data:
         try:
             # Ensure timestamps are converted if they are still Firestore Timestamps
             sub_data = user_data['subscription']
             for key in ['current_period_starts_at', 'current_period_ends_at', 'cancellation_effective_date']:
                 if key in sub_data and hasattr(sub_data[key], 'ToDatetime'):
                     sub_data[key] = sub_data[key].ToDatetime()
-            return UserSubscription(**sub_data) #
+            return UserSubscription(**sub_data)
         except Exception as e:
-            print(f"Error parsing subscription data for user {uid}: {e}") #
+            print(f"Error parsing subscription data for user {uid}: {e}")
             return None
     return None
 
@@ -125,14 +154,12 @@ async def update_user_subscription_from_paystack(
         user_profile = await get_user_profile_data(uid)
         if not user_profile:
             print(f"User {uid} not found. Cannot update subscription.")
-            # Optionally, create the user here if webhook arrives before user record exists
-            # For now, we assume user exists from initial signup/token verification.
             return False
 
         # Prepare the subscription data, ensuring all datetime are UTC and Firestore compatible
         subscription_data = {
             "tier": tier,
-            "status": status, # "active", "inactive", "cancelled", "past_due" etc.
+            "status": status,
             "payment_gateway": "paystack",
             "paystack_subscription_id": paystack_subscription_id,
             "paystack_customer_id": paystack_customer_id,
@@ -151,7 +178,6 @@ async def update_user_subscription_from_paystack(
         elif tier == "free":
             update_payload["has_active_subscription"] = False
 
-
         await run_in_threadpool(user_ref.update, update_payload)
         print(f"Successfully updated subscription for user {uid} to tier {tier}, status {status}.")
         return True
@@ -168,7 +194,7 @@ async def revert_user_to_free_tier(uid: str) -> bool:
     try:
         free_subscription_data = UserSubscription(
             tier="free",
-            status="active", # Or "cancelled" if coming from a paid plan
+            status="active",
             payment_gateway=None,
             paystack_subscription_id=None,
             paystack_customer_id=None,

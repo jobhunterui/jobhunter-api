@@ -27,20 +27,40 @@ async def read_users_me(current_user_token: Dict = Depends(get_current_user)):
         # Get or create user from Firestore
         user_data_from_db = await user_service.get_or_create_user(uid=uid, email=email)
         
-        print(f"DEBUG: Raw user data from DB for UID {uid}: {user_data_from_db}")
+        # Check if we got the wrong data structure (application data instead of user profile)
+        if "savedJobs" in user_data_from_db or "profileData" in user_data_from_db:
+            print(f"ERROR: get_or_create_user returned application data instead of user profile for UID {uid}")
+            print(f"Data keys found: {list(user_data_from_db.keys())}")
+            
+            # This means the user document structure is wrong - let's create a proper user profile
+            default_subscription = UserSubscription(
+                tier="free",
+                status="active"
+            )
+            
+            response_data = UserProfileResponse(
+                uid=uid,
+                email=email,
+                created_at=datetime.now(timezone.utc),
+                subscription=default_subscription
+            )
+            
+            print(f"INFO: Created default user profile response for UID {uid}")
+            return response_data
         
         # Validate required fields exist
         if not user_data_from_db.get("uid"):
-            raise ValueError("Missing UID in user data")
+            print(f"WARNING: Missing UID in user data for {uid}, using token UID")
+            user_data_from_db["uid"] = uid
+            
         if not user_data_from_db.get("email"):
-            raise ValueError("Missing email in user data")
+            print(f"WARNING: Missing email in user data for {uid}, using token email")
+            user_data_from_db["email"] = email
             
         # Handle created_at field - ensure it's a datetime object
         created_at = user_data_from_db.get("created_at")
         if created_at is None:
-            # Fallback to current time if missing
             created_at = datetime.now(timezone.utc)
-            print(f"WARNING: No created_at found for user {uid}, using current time")
         elif hasattr(created_at, 'ToDatetime'):
             # Firestore Timestamp object
             created_at = created_at.ToDatetime()
@@ -48,12 +68,9 @@ async def read_users_me(current_user_token: Dict = Depends(get_current_user)):
             # ISO string, parse it
             try:
                 created_at = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
-            except Exception as e:
-                print(f"ERROR: Failed to parse created_at string '{created_at}': {e}")
+            except Exception:
                 created_at = datetime.now(timezone.utc)
         elif not isinstance(created_at, datetime):
-            # Unknown type, fallback
-            print(f"WARNING: Unknown created_at type {type(created_at)}: {created_at}")
             created_at = datetime.now(timezone.utc)
             
         # Ensure timezone info
@@ -62,7 +79,6 @@ async def read_users_me(current_user_token: Dict = Depends(get_current_user)):
         
         # Handle subscription data
         subscription_data = user_data_from_db.get("subscription", {})
-        print(f"DEBUG: Raw subscription data: {subscription_data}")
         
         # Clean and validate subscription data
         clean_subscription_data = {}
@@ -92,8 +108,7 @@ async def read_users_me(current_user_token: Dict = Depends(get_current_user)):
                 try:
                     parsed_dt = datetime.fromisoformat(field_value.replace('Z', '+00:00'))
                     clean_subscription_data[field_name] = parsed_dt
-                except Exception as e:
-                    print(f"ERROR: Failed to parse {field_name} string '{field_value}': {e}")
+                except Exception:
                     clean_subscription_data[field_name] = None
             elif isinstance(field_value, datetime):
                 # Already datetime, ensure timezone
@@ -101,17 +116,13 @@ async def read_users_me(current_user_token: Dict = Depends(get_current_user)):
                     field_value = field_value.replace(tzinfo=timezone.utc)
                 clean_subscription_data[field_name] = field_value
             else:
-                print(f"WARNING: Unknown {field_name} type {type(field_value)}: {field_value}")
                 clean_subscription_data[field_name] = None
-        
-        print(f"DEBUG: Cleaned subscription data: {clean_subscription_data}")
         
         # Create UserSubscription object
         try:
             subscription_details = UserSubscription(**clean_subscription_data)
         except Exception as e:
             print(f"ERROR: Failed to create UserSubscription object: {e}")
-            print(f"Problematic data: {clean_subscription_data}")
             # Fallback to minimal subscription
             subscription_details = UserSubscription(
                 tier="free",
@@ -119,35 +130,27 @@ async def read_users_me(current_user_token: Dict = Depends(get_current_user)):
             )
         
         # Create the response object
-        try:
-            response_data = UserProfileResponse(
-                uid=user_data_from_db["uid"],
-                email=user_data_from_db["email"],
-                created_at=created_at,
-                subscription=subscription_details
-            )
-            
-            print(f"DEBUG: Successfully created UserProfileResponse for UID {uid}")
-            return response_data
-            
-        except Exception as e:
-            print(f"ERROR: Failed to create UserProfileResponse: {e}")
-            raise ValueError(f"Failed to construct response object: {e}")
+        response_data = UserProfileResponse(
+            uid=user_data_from_db["uid"],
+            email=user_data_from_db["email"],
+            created_at=created_at,
+            subscription=subscription_details
+        )
+        
+        return response_data
             
     except HTTPException:
         # Re-raise HTTP exceptions as-is
         raise
     except Exception as e:
-        # Log the full error for debugging
+        # Log the error without the massive data dump
         print(f"ERROR: Exception in read_users_me for UID {uid}: {e}")
         print(f"Exception type: {type(e)}")
-        import traceback
-        print(f"Full traceback: {traceback.format_exc()}")
         
-        # Also log the user data if available
+        # Only log data structure info, not the full content
         try:
             if 'user_data_from_db' in locals():
-                print(f"User data when error occurred: {user_data_from_db}")
+                print(f"Data structure keys: {list(user_data_from_db.keys()) if isinstance(user_data_from_db, dict) else 'Not a dict'}")
         except:
             pass
             
