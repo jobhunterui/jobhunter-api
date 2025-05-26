@@ -80,31 +80,39 @@ class Settings(BaseSettings):
         "cv_upload_and_parse"
     ]
 
+    def _mask_sensitive_data(self, value: str, show_chars: int = 8) -> str:
+        """Mask sensitive data for logging, showing only first few characters"""
+        if not value or len(value) <= show_chars:
+            return "***MASKED***"
+        return f"{value[:show_chars]}***"
+
     @model_validator(mode="after")
     def set_active_paystack_keys_and_defaults(self) -> 'Settings':
         env = self.ENVIRONMENT.lower().strip()
-        print(f"INFO: [Config.Validator] Environment set to: '{env}'")
+        is_production = env == "production"
         
-        # Debug logging - show what we actually got from environment
-        print(f"DEBUG: [Config.Validator] Raw values loaded:")
-        print(f"  PAYSTACK_SECRET_KEY (live) starts with: {self.PAYSTACK_SECRET_KEY[:20] if self.PAYSTACK_SECRET_KEY else 'NONE'}...")
-        print(f"  PAYSTACK_PUBLIC_KEY (live) starts with: {self.PAYSTACK_PUBLIC_KEY[:20] if self.PAYSTACK_PUBLIC_KEY else 'NONE'}...")
-        print(f"  PAYSTACK_TEST_SECRET_KEY starts with: {self.PAYSTACK_TEST_SECRET_KEY[:20] if self.PAYSTACK_TEST_SECRET_KEY else 'NONE'}...")
-        print(f"  PAYSTACK_TEST_PUBLIC_KEY starts with: {self.PAYSTACK_TEST_PUBLIC_KEY[:20] if self.PAYSTACK_TEST_PUBLIC_KEY else 'NONE'}...")
+        # Only show detailed config in development
+        if not is_production:
+            print(f"INFO: [Config.Validator] Environment set to: '{env}'")
+            print(f"DEBUG: [Config.Validator] Raw values loaded:")
+            print(f"  PAYSTACK_SECRET_KEY (live) starts with: {self._mask_sensitive_data(self.PAYSTACK_SECRET_KEY, 12)}")
+            print(f"  PAYSTACK_PUBLIC_KEY (live) starts with: {self._mask_sensitive_data(self.PAYSTACK_PUBLIC_KEY, 12)}")
+            print(f"  PAYSTACK_TEST_SECRET_KEY starts with: {self._mask_sensitive_data(self.PAYSTACK_TEST_SECRET_KEY, 12)}")
+            print(f"  PAYSTACK_TEST_PUBLIC_KEY starts with: {self._mask_sensitive_data(self.PAYSTACK_TEST_PUBLIC_KEY, 12)}")
+        else:
+            print(f"INFO: [Config] Production environment initialized")
         
-        if env == "production":
+        if is_production:
             # Use the live keys that are already loaded
             if not self.PAYSTACK_SECRET_KEY or self.PAYSTACK_SECRET_KEY.startswith("your_"):
-                raise ValueError(f"PAYSTACK_SECRET_KEY (live) must be set in environment variables for production. Got: {self.PAYSTACK_SECRET_KEY[:30] if self.PAYSTACK_SECRET_KEY else 'None'}")
+                raise ValueError("PAYSTACK_SECRET_KEY (live) must be set in environment variables for production")
             
             if not self.PAYSTACK_PUBLIC_KEY or self.PAYSTACK_PUBLIC_KEY.startswith("your_"):
-                raise ValueError(f"PAYSTACK_PUBLIC_KEY (live) must be set in environment variables for production. Got: {self.PAYSTACK_PUBLIC_KEY[:30] if self.PAYSTACK_PUBLIC_KEY else 'None'}")
+                raise ValueError("PAYSTACK_PUBLIC_KEY (live) must be set in environment variables for production")
             
             self.FINAL_PAYSTACK_SECRET_KEY = self.PAYSTACK_SECRET_KEY
             self.FINAL_PAYSTACK_PUBLIC_KEY = self.PAYSTACK_PUBLIC_KEY
-            print("SUCCESS: [Config.Validator] Using LIVE Paystack keys for PRODUCTION environment")
-            print(f"  Active SECRET_KEY starts with: {self.FINAL_PAYSTACK_SECRET_KEY[:15]}...")
-            print(f"  Active PUBLIC_KEY starts with: {self.FINAL_PAYSTACK_PUBLIC_KEY[:15]}...")
+            print("INFO: [Config] Payment system configured for production")
             
         else:  # development or any other value defaults to test mode
             self.FINAL_PAYSTACK_SECRET_KEY = self.PAYSTACK_TEST_SECRET_KEY
@@ -116,7 +124,9 @@ class Settings(BaseSettings):
 
         # Set plan codes (same for both environments)
         self.PAYSTACK_PLAN_CODES = self.PAYSTACK_ACTUAL_PLAN_CODES
-        print(f"INFO: [Config.Validator] Active Paystack Plan Codes: {self.PAYSTACK_PLAN_CODES}")
+        
+        if not is_production:
+            print(f"INFO: [Config.Validator] Active Paystack Plan Codes: {self.PAYSTACK_PLAN_CODES}")
         
         # Handle ALLOWED_ORIGINS
         if not self.ALLOWED_ORIGINS:
@@ -128,9 +138,11 @@ class Settings(BaseSettings):
                 "moz-extension://*",
                 "chrome-extension://*"
             ]
-            print(f"INFO: [Config.Validator] Defaulting ALLOWED_ORIGINS: {self.ALLOWED_ORIGINS}")
+            if not is_production:
+                print(f"INFO: [Config.Validator] Defaulting ALLOWED_ORIGINS: {self.ALLOWED_ORIGINS}")
         else:
-            print(f"INFO: [Config.Validator] Using ALLOWED_ORIGINS from environment: {self.ALLOWED_ORIGINS}")
+            if not is_production:
+                print(f"INFO: [Config.Validator] Using ALLOWED_ORIGINS from environment: {self.ALLOWED_ORIGINS}")
             
         return self
 
@@ -142,17 +154,30 @@ class Settings(BaseSettings):
 # Create settings instance
 try:
     settings = Settings()
-    print("SUCCESS: [Config] Settings loaded successfully")
+    is_production = settings.ENVIRONMENT.lower().strip() == "production"
+    
+    if not is_production:
+        print("SUCCESS: [Config] Settings loaded successfully")
+    else:
+        print("INFO: [Config] Production settings loaded")
+        
 except Exception as e:
     print(f"CRITICAL ERROR: [Config] Failed to load settings: {e}")
-    print("Available environment variables:")
-    for key in os.environ:
-        if 'PAYSTACK' in key:
-            value = os.environ[key]
-            print(f"  {key} = {value[:20]}..." if len(value) > 20 else f"  {key} = {value}")
+    # Only show environment variables in development
+    if os.getenv("ENVIRONMENT", "development").lower() != "production":
+        print("Available environment variables:")
+        for key in os.environ:
+            if 'PAYSTACK' in key:
+                value = os.environ[key]
+                masked_value = f"{value[:8]}***" if len(value) > 8 else "***MASKED***"
+                print(f"  {key} = {masked_value}")
     raise
 
-# Final validation
-print(f"FINAL CHECK: Environment={settings.ENVIRONMENT}")
-print(f"FINAL CHECK: Active secret key starts with: {settings.FINAL_PAYSTACK_SECRET_KEY[:15] if settings.FINAL_PAYSTACK_SECRET_KEY else 'NONE'}...")
-print(f"FINAL CHECK: Active public key starts with: {settings.FINAL_PAYSTACK_PUBLIC_KEY[:15] if settings.FINAL_PAYSTACK_PUBLIC_KEY else 'NONE'}...")
+# Final validation - only detailed info in development
+is_production = settings.ENVIRONMENT.lower().strip() == "production"
+if not is_production:
+    print(f"FINAL CHECK: Environment={settings.ENVIRONMENT}")
+    print(f"FINAL CHECK: Active secret key configured: {bool(settings.FINAL_PAYSTACK_SECRET_KEY)}")
+    print(f"FINAL CHECK: Active public key configured: {bool(settings.FINAL_PAYSTACK_PUBLIC_KEY)}")
+else:
+    print(f"INFO: [Config] Production configuration validated successfully")

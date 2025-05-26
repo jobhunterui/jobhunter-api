@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from app.schemas.user import UserSubscription, UserDBCreate
 from typing import Dict, Optional
 from fastapi.concurrency import run_in_threadpool
+from app.core.config import settings
 
 USERS_COLLECTION = "users"
 USER_APP_DATA_COLLECTION = "user_app_data"
@@ -21,6 +22,7 @@ async def migrate_mixed_document_to_separated(uid: str, mixed_data: Dict) -> boo
     to separate documents in proper collections.
     """
     db = get_firestore_db()
+    is_production = settings.ENVIRONMENT.lower().strip() == "production"
     
     try:
         # Extract user profile data
@@ -53,11 +55,17 @@ async def migrate_mixed_document_to_separated(uid: str, mixed_data: Dict) -> boo
         # Save application data
         await run_in_threadpool(app_data_ref.set, app_data)
         
-        print(f"INFO: Successfully migrated mixed document for UID {uid} to separated collections")
+        if not is_production:
+            print(f"INFO: Successfully migrated mixed document for UID {uid} to separated collections")
+        else:
+            print(f"INFO: [UserService] Document migration completed for user")
         return True
         
     except Exception as e:
-        print(f"ERROR: Failed to migrate mixed document for UID {uid}: {e}")
+        if not is_production:
+            print(f"ERROR: Failed to migrate mixed document for UID {uid}: {e}")
+        else:
+            print(f"ERROR: [UserService] Document migration failed: {str(e)}")
         return False
 
 async def get_or_create_user(uid: str, email: str) -> Dict:
@@ -72,6 +80,7 @@ async def get_or_create_user(uid: str, email: str) -> Dict:
     """
     db = get_firestore_db()
     user_ref = db.collection(USERS_COLLECTION).document(uid)
+    is_production = settings.ENVIRONMENT.lower().strip() == "production"
     
     user_doc = await run_in_threadpool(user_ref.get)
 
@@ -80,8 +89,11 @@ async def get_or_create_user(uid: str, email: str) -> Dict:
         
         # Check if this is a mixed document (contains application data instead of user profile)
         if "savedJobs" in user_data or "profileData" in user_data:
-            print(f"WARNING: User document {uid} contains application data instead of profile data")
-            print(f"Document keys: {list(user_data.keys())}")
+            if not is_production:
+                print(f"WARNING: User document {uid} contains application data instead of profile data")
+                print(f"Document keys: {list(user_data.keys())}")
+            else:
+                print(f"INFO: [UserService] Migrating legacy document structure for user")
             
             # Migrate the mixed document to proper structure
             migration_success = await migrate_mixed_document_to_separated(uid, user_data)
@@ -97,11 +109,15 @@ async def get_or_create_user(uid: str, email: str) -> Dict:
                         "status": "active"
                     }
                 }
-                print(f"INFO: Migration completed for UID {uid}, returning profile data")
+                if not is_production:
+                    print(f"INFO: Migration completed for UID {uid}, returning profile data")
                 return profile_data
             else:
                 # Migration failed, create default profile
-                print(f"ERROR: Migration failed for UID {uid}, creating default profile")
+                if not is_production:
+                    print(f"ERROR: Migration failed for UID {uid}, creating default profile")
+                else:
+                    print(f"WARN: [UserService] Migration failed, creating default profile")
                 profile_data = {
                     "uid": uid,
                     "email": email,
@@ -149,7 +165,10 @@ async def get_or_create_user(uid: str, email: str) -> Dict:
         user_data_to_set = new_user_data.model_dump()
         await run_in_threadpool(user_ref.set, user_data_to_set)
         
-        print(f"INFO: Created new user profile for UID {uid}")
+        if not is_production:
+            print(f"INFO: Created new user profile for UID {uid}")
+        else:
+            print(f"INFO: [UserService] New user profile created")
         return user_data_to_set
 
 async def get_user_profile_data(uid: str) -> Optional[Dict]:
@@ -191,7 +210,11 @@ async def get_user_subscription_object(uid: str) -> Optional[UserSubscription]:
                     sub_data[key] = sub_data[key].ToDatetime()
             return UserSubscription(**sub_data)
         except Exception as e:
-            print(f"Error parsing subscription data for user {uid}: {e}")
+            is_production = settings.ENVIRONMENT.lower().strip() == "production"
+            if not is_production:
+                print(f"Error parsing subscription data for user {uid}: {e}")
+            else:
+                print(f"WARN: [UserService] Subscription data parsing error")
             return None
     return None
 
@@ -210,11 +233,15 @@ async def update_user_subscription_from_paystack(
     """
     db = get_firestore_db()
     user_ref = db.collection(USERS_COLLECTION).document(uid)
+    is_production = settings.ENVIRONMENT.lower().strip() == "production"
 
     try:
         user_profile = await get_user_profile_data(uid)
         if not user_profile:
-            print(f"User {uid} not found. Cannot update subscription.")
+            if not is_production:
+                print(f"User {uid} not found. Cannot update subscription.")
+            else:
+                print(f"WARN: [UserService] User not found for subscription update")
             return False
 
         # Prepare the subscription data, ensuring all datetime are UTC and Firestore compatible
@@ -240,10 +267,16 @@ async def update_user_subscription_from_paystack(
             update_payload["has_active_subscription"] = False
 
         await run_in_threadpool(user_ref.update, update_payload)
-        print(f"Successfully updated subscription for user {uid} to tier {tier}, status {status}.")
+        if not is_production:
+            print(f"Successfully updated subscription for user {uid} to tier {tier}, status {status}.")
+        else:
+            print(f"INFO: [UserService] Subscription updated successfully")
         return True
     except Exception as e:
-        print(f"Error updating subscription for user {uid}: {e}")
+        if not is_production:
+            print(f"Error updating subscription for user {uid}: {e}")
+        else:
+            print(f"ERROR: [UserService] Subscription update failed: {str(e)}")
         return False
 
 async def revert_user_to_free_tier(uid: str) -> bool:
@@ -252,6 +285,8 @@ async def revert_user_to_free_tier(uid: str) -> bool:
     """
     db = get_firestore_db()
     user_ref = db.collection(USERS_COLLECTION).document(uid)
+    is_production = settings.ENVIRONMENT.lower().strip() == "production"
+    
     try:
         free_subscription_data = UserSubscription(
             tier="free",
@@ -272,8 +307,14 @@ async def revert_user_to_free_tier(uid: str) -> bool:
                 "has_active_subscription": False
             }
         )
-        print(f"Successfully reverted user {uid} to free tier.")
+        if not is_production:
+            print(f"Successfully reverted user {uid} to free tier.")
+        else:
+            print(f"INFO: [UserService] User reverted to free tier")
         return True
     except Exception as e:
-        print(f"Error reverting user {uid} to free tier: {e}")
+        if not is_production:
+            print(f"Error reverting user {uid} to free tier: {e}")
+        else:
+            print(f"ERROR: [UserService] Free tier reversion failed: {str(e)}")
         return False

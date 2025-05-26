@@ -15,7 +15,7 @@ from app.schemas.payment import (
     InitializePaymentResponse,
     InitializePaymentResponseData,
     PaystackWebhookEvent,
-    PaystackChargeSuccessData, # For parsing specific event data
+    PaystackChargeSuccessData,
     PaystackSubscriptionCreateData,
     PaystackSubscriptionDisableData,
     PaystackSubscriptionNotRenewData
@@ -29,13 +29,13 @@ PAYSTACK_API_BASE_URL = "https://api.paystack.co"
 
 @router.post(
     "/initialize_transaction",
-    response_model=InitializePaymentResponse, # Updated based on Paystack's actual successful response
+    response_model=InitializePaymentResponse,
     summary="Initialize a Paystack transaction for a subscription plan",
     tags=["Payments"]
 )
 async def initialize_transaction(
     payload: InitializePaymentRequest,
-    current_user_data: dict = Depends(get_current_user), # Get full user data for email and uid
+    current_user_data: dict = Depends(get_current_user),
 ):
     """
     Initializes a Paystack transaction.
@@ -47,6 +47,7 @@ async def initialize_transaction(
     """
     user_uid = current_user_data.get("uid")
     user_email = current_user_data.get("email")
+    is_production = settings.ENVIRONMENT.lower().strip() == "production"
 
     if not user_uid or not user_email:
         raise HTTPException(
@@ -77,7 +78,6 @@ async def initialize_transaction(
     # Paystack references can be up to 100 characters.
     transaction_reference = f"jh_{user_uid}_{payload.plan_identifier}_{int(datetime.now(timezone.utc).timestamp())}"
 
-
     # For plan subscriptions, you typically pass the plan code.
     # If it were a one-time payment for a specific amount, you'd pass 'amount' (in kobo).
     data = {
@@ -106,6 +106,11 @@ async def initialize_transaction(
             paystack_response_data = response.json()
 
             if paystack_response_data.get("status"):
+                if not is_production:
+                    print(f"INFO: Payment initialized for user {user_uid}, plan {payload.plan_identifier}")
+                else:
+                    print(f"INFO: [Payments] Transaction initialized successfully")
+                
                 return InitializePaymentResponse(
                     status=True,
                     message="Transaction initialized successfully.",
@@ -123,13 +128,23 @@ async def initialize_transaction(
                 error_detail = f"Paystack API error: {error_body.get('message', e.response.text)}"
             except Exception:
                 pass # Keep generic error detail
-            print(f"Paystack API HTTPStatusError: {e.response.status_code} - {error_detail}")
+            
+            if not is_production:
+                print(f"Paystack API HTTPStatusError: {e.response.status_code} - {error_detail}")
+            else:
+                print(f"ERROR: [Payments] Paystack API error: {e.response.status_code}")
             raise HTTPException(status_code=e.response.status_code, detail=error_detail)
         except httpx.RequestError as e:
-            print(f"Paystack API RequestError: {e}")
+            if not is_production:
+                print(f"Paystack API RequestError: {e}")
+            else:
+                print(f"ERROR: [Payments] Network error contacting Paystack")
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=f"Network error contacting Paystack: {e}")
         except Exception as e:
-            print(f"Unexpected error during Paystack initialization: {e}")
+            if not is_production:
+                print(f"Unexpected error during Paystack initialization: {e}")
+            else:
+                print(f"ERROR: [Payments] Unexpected error during initialization")
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"An unexpected error occurred: {e}")
 
 
@@ -148,15 +163,23 @@ async def paystack_webhook(
     Verifies the signature and processes events like 'charge.success',
     'subscription.create', 'subscription.disable', etc.
     """
+    is_production = settings.ENVIRONMENT.lower().strip() == "production"
+    
     if not x_paystack_signature:
-        print("Webhook error: Missing X-Paystack-Signature header")
+        if not is_production:
+            print("Webhook error: Missing X-Paystack-Signature header")
+        else:
+            print("ERROR: [Webhook] Missing signature header")
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing Paystack signature.")
 
     try:
         raw_body = await request.body()
         payload_json = raw_body.decode('utf-8')
     except Exception as e:
-        print(f"Webhook error: Could not decode request body: {e}")
+        if not is_production:
+            print(f"Webhook error: Could not decode request body: {e}")
+        else:
+            print("ERROR: [Webhook] Could not decode request body")
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid request body.")
 
     # Verify the webhook signature
@@ -167,16 +190,25 @@ async def paystack_webhook(
     ).hexdigest()
 
     if not hmac.compare_digest(expected_signature, x_paystack_signature):
-        print(f"Webhook error: Invalid signature. Expected: {expected_signature}, Got: {x_paystack_signature}")
+        if not is_production:
+            print(f"Webhook error: Invalid signature. Expected: {expected_signature}, Got: {x_paystack_signature}")
+        else:
+            print("ERROR: [Webhook] Invalid signature")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid Paystack signature.")
 
     try:
         event_payload = PaystackWebhookEvent.model_validate_json(payload_json)
         event_data = event_payload.data # This is the raw data dict from Paystack
         event_type = event_payload.event
-        print(f"Received Paystack webhook event: {event_type}")
+        if not is_production:
+            print(f"Received Paystack webhook event: {event_type}")
+        else:
+            print(f"INFO: [Webhook] Received event: {event_type}")
     except Exception as e:
-        print(f"Webhook error: Could not parse webhook payload: {e}")
+        if not is_production:
+            print(f"Webhook error: Could not parse webhook payload: {e}")
+        else:
+            print("ERROR: [Webhook] Could not parse payload")
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid webhook payload: {e}")
 
     # --- Process different event types ---
@@ -197,28 +229,33 @@ async def paystack_webhook(
         # This is less ideal as emails might not be unique if you allow it.
         # For this app, Firebase UID is the primary key.
         # You might need a function: async def get_user_uid_by_email(email: str) -> Optional[str]:
-        print(f"Warning: UID not found directly in webhook metadata/reference for event {event_type}. Customer email: {event_data['customer']['email']}")
+        if not is_production:
+            print(f"Warning: UID not found directly in webhook metadata/reference for event {event_type}. Customer email: {event_data['customer']['email']}")
+        else:
+            print(f"WARN: [Webhook] UID not found in event data for {event_type}")
         # For now, we'll skip if UID isn't directly available to avoid ambiguity.
-        # If you implement email lookup, ensure it's secure and handles multiple users with same email if possible.
-
 
     if not user_uid_from_event:
         # CRITICAL: Payment received but can't identify user
-        print(f"CRITICAL WEBHOOK ERROR: Payment received but cannot determine user UID for event: {event_type}")
-        print(f"Full event data for manual processing: {json.dumps(event_data)}")
+        if not is_production:
+            print(f"CRITICAL WEBHOOK ERROR: Payment received but cannot determine user UID for event: {event_type}")
+            print(f"Full event data for manual processing: {json.dumps(event_data)}")
+        else:
+            print(f"CRITICAL: [Webhook] Cannot identify user for event {event_type}")
         
         # Try to extract any identifying information for manual recovery
         customer_email = None
         if 'customer' in event_data and 'email' in event_data.get('customer', {}):
             customer_email = event_data['customer']['email']
-            print(f"Customer email found: {customer_email} - Manual intervention required")
+            if not is_production:
+                print(f"Customer email found: {customer_email} - Manual intervention required")
         
         # Log critical information for manual recovery
         critical_log = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "event_type": event_type,
             "customer_email": customer_email,
-            "event_data": event_data
+            "requires_manual_processing": True
         }
         print(f"MANUAL_RECOVERY_REQUIRED: {json.dumps(critical_log)}")
         
@@ -226,12 +263,14 @@ async def paystack_webhook(
         # This needs manual intervention but we don't want Paystack to keep retrying
         return {"status": "success", "message": "Webhook received - manual processing required"}
 
-
     # Process based on event type
     if event_type == "charge.success":
         try:
             charge_data = PaystackChargeSuccessData(**event_data)
-            print(f"Processing charge.success for user {user_uid_from_event}, reference: {charge_data.reference}")
+            if not is_production:
+                print(f"Processing charge.success for user {user_uid_from_event}, reference: {charge_data.reference}")
+            else:
+                print(f"INFO: [Webhook] Processing charge.success")
             
             # This event signifies a successful payment.
             # If this charge is part of creating/renewing a subscription,
@@ -266,17 +305,23 @@ async def paystack_webhook(
                     current_period_ends_at=ends_at
                 )
             else:
-                print(f"Charge.success for user {user_uid_from_event} was not tied to a known plan via plan_object.")
+                if not is_production:
+                    print(f"Charge.success for user {user_uid_from_event} was not tied to a known plan via plan_object.")
 
         except Exception as e:
-            print(f"Error processing charge.success for {user_uid_from_event}: {e}")
+            if not is_production:
+                print(f"Error processing charge.success for {user_uid_from_event}: {e}")
+            else:
+                print(f"ERROR: [Webhook] Error processing charge.success: {str(e)}")
             # Log error but return 200 to Paystack
-
 
     elif event_type == "subscription.create":
         try:
             sub_data = PaystackSubscriptionCreateData(**event_data)
-            print(f"Processing subscription.create for user {user_uid_from_event}, sub_code: {sub_data.subscription_code}")
+            if not is_production:
+                print(f"Processing subscription.create for user {user_uid_from_event}, sub_code: {sub_data.subscription_code}")
+            else:
+                print(f"INFO: [Webhook] Processing subscription.create")
             
             tier = "free"
             for plan_name, p_code in settings.PAYSTACK_PLAN_CODES.items():
@@ -294,12 +339,18 @@ async def paystack_webhook(
                 current_period_ends_at=sub_data.next_payment_date # This is usually the key field
             )
         except Exception as e:
-            print(f"Error processing subscription.create for {user_uid_from_event}: {e}")
+            if not is_production:
+                print(f"Error processing subscription.create for {user_uid_from_event}: {e}")
+            else:
+                print(f"ERROR: [Webhook] Error processing subscription.create: {str(e)}")
 
     elif event_type in ["subscription.disable", "subscription.not_renew", "subscription.expiring_cards"]: # Handle disable and non-renewal
         try:
             sub_data = PaystackSubscriptionDisableData(**event_data) # Schema can be reused or made specific
-            print(f"Processing {event_type} for user {user_uid_from_event}, sub_code: {sub_data.subscription_code}")
+            if not is_production:
+                print(f"Processing {event_type} for user {user_uid_from_event}, sub_code: {sub_data.subscription_code}")
+            else:
+                print(f"INFO: [Webhook] Processing {event_type}")
 
             # If subscription.disable, it means it's no longer active. Revert to free.
             # If subscription.not_renew, it means it will expire at next_payment_date.
@@ -337,9 +388,11 @@ async def paystack_webhook(
                         cancellation_effective_date=sub_data.next_payment_date # Access ends here
                     )
 
-
         except Exception as e:
-            print(f"Error processing {event_type} for {user_uid_from_event}: {e}")
+            if not is_production:
+                print(f"Error processing {event_type} for {user_uid_from_event}: {e}")
+            else:
+                print(f"ERROR: [Webhook] Error processing {event_type}: {str(e)}")
     
     # Add more event handlers as needed:
     # - invoice.payment_failed, invoice.update, customeridentification.failed, etc.
@@ -364,6 +417,12 @@ async def get_app_configuration():
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, 
             detail="Payment system configuration is incomplete on the server."
         )
+    
+    # Secure logging for production
+    is_production = settings.ENVIRONMENT.lower().strip() == "production"
+    if not is_production:
+        print(f"INFO: App config requested - Environment: {settings.ENVIRONMENT}")
+    
     return AppConfigResponse(
         environment=settings.ENVIRONMENT,
         paystack_public_key=settings.FINAL_PAYSTACK_PUBLIC_KEY
