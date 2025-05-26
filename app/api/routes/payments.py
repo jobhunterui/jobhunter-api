@@ -38,12 +38,7 @@ async def initialize_transaction(
     current_user_data: dict = Depends(get_current_user),
 ):
     """
-    Initializes a Paystack transaction.
-    The user (identified by Firebase token) provides their email, chosen plan identifier,
-    and a callback URL for Paystack to redirect to after payment attempt.
-
-    The backend uses the plan_identifier to fetch the corresponding Paystack Plan Code
-    from settings.
+    Initializes a Paystack transaction with detailed debugging.
     """
     user_uid = current_user_data.get("uid")
     user_email = current_user_data.get("email")
@@ -56,14 +51,18 @@ async def initialize_transaction(
         )
 
     if payload.email != user_email:
-        # This check is important for security.
-        # The email for Paystack should match the authenticated user's email.
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Payload email does not match authenticated user's email."
         )
 
+    # Debug: Log the plan lookup
     plan_code = settings.PAYSTACK_PLAN_CODES.get(payload.plan_identifier)
+    print(f"DEBUG: [Payments] Plan lookup - identifier: {payload.plan_identifier}, code: {plan_code}")
+    print(f"DEBUG: [Payments] Available plans: {settings.PAYSTACK_PLAN_CODES}")
+    print(f"DEBUG: [Payments] Environment: {settings.ENVIRONMENT}")
+    print(f"DEBUG: [Payments] Using {'LIVE' if is_production else 'TEST'} Paystack keys")
+    
     if not plan_code:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -74,18 +73,17 @@ async def initialize_transaction(
         "Authorization": f"Bearer {settings.FINAL_PAYSTACK_SECRET_KEY}",
         "Content-Type": "application/json",
     }
-    # Generate a unique reference for the transaction, including UID for easy mapping
-    # Paystack references can be up to 100 characters.
+    
+    # Generate a unique reference for the transaction
     transaction_reference = f"jh_{user_uid}_{payload.plan_identifier}_{int(datetime.now(timezone.utc).timestamp())}"
 
-    # For plan subscriptions, you typically pass the plan code.
-    # If it were a one-time payment for a specific amount, you'd pass 'amount' (in kobo).
+    # CRITICAL: For subscriptions, do NOT include amount when using plan
     data = {
         "email": payload.email,
-        "plan": plan_code, # For subscriptions
+        "plan": plan_code,  # This contains the amount - don't add amount field
         "callback_url": str(payload.callback_url),
         "reference": transaction_reference,
-        "metadata": { # Optional: useful for storing custom data
+        "metadata": {
             "user_id": user_uid,
             "plan_identifier": payload.plan_identifier,
             "custom_fields": [
@@ -94,6 +92,10 @@ async def initialize_transaction(
             ]
         }
     }
+    
+    # Debug: Log the request being sent to Paystack
+    print(f"DEBUG: [Payments] Paystack request data: {json.dumps(data, indent=2)}")
+    print(f"DEBUG: [Payments] Secret key prefix: {settings.FINAL_PAYSTACK_SECRET_KEY[:15]}...")
 
     async with httpx.AsyncClient() as client:
         try:
@@ -102,7 +104,18 @@ async def initialize_transaction(
                 headers=headers,
                 json=data
             )
-            response.raise_for_status() # Raise an exception for HTTP errors (4xx or 5xx)
+            
+            # Debug: Log the response
+            print(f"DEBUG: [Payments] Paystack response status: {response.status_code}")
+            print(f"DEBUG: [Payments] Paystack response headers: {dict(response.headers)}")
+            
+            try:
+                response_text = response.text
+                print(f"DEBUG: [Payments] Paystack response body: {response_text}")
+            except:
+                print("DEBUG: [Payments] Could not read response body")
+            
+            response.raise_for_status()
             paystack_response_data = response.json()
 
             if paystack_response_data.get("status"):
@@ -117,6 +130,7 @@ async def initialize_transaction(
                     data=InitializePaymentResponseData(**paystack_response_data.get("data"))
                 )
             else:
+                print(f"ERROR: [Payments] Paystack returned status=false: {paystack_response_data}")
                 raise HTTPException(
                     status_code=status.HTTP_502_BAD_GATEWAY,
                     detail=f"Paystack error: {paystack_response_data.get('message', 'Unknown error')}"
@@ -126,26 +140,64 @@ async def initialize_transaction(
             try:
                 error_body = e.response.json()
                 error_detail = f"Paystack API error: {error_body.get('message', e.response.text)}"
+                print(f"ERROR: [Payments] Paystack error response: {json.dumps(error_body, indent=2)}")
             except Exception:
-                pass # Keep generic error detail
+                print(f"ERROR: [Payments] Could not parse error response: {e.response.text}")
             
-            if not is_production:
-                print(f"Paystack API HTTPStatusError: {e.response.status_code} - {error_detail}")
-            else:
-                print(f"ERROR: [Payments] Paystack API error: {e.response.status_code}")
+            print(f"ERROR: [Payments] HTTP {e.response.status_code}: {error_detail}")
             raise HTTPException(status_code=e.response.status_code, detail=error_detail)
         except httpx.RequestError as e:
-            if not is_production:
-                print(f"Paystack API RequestError: {e}")
-            else:
-                print(f"ERROR: [Payments] Network error contacting Paystack")
+            print(f"ERROR: [Payments] Network error: {e}")
             raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=f"Network error contacting Paystack: {e}")
         except Exception as e:
-            if not is_production:
-                print(f"Unexpected error during Paystack initialization: {e}")
-            else:
-                print(f"ERROR: [Payments] Unexpected error during initialization")
+            print(f"ERROR: [Payments] Unexpected error: {e}")
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"An unexpected error occurred: {e}")
+
+# Add a new endpoint to verify your plans exist
+@router.get("/debug/verify-plans", tags=["Debug"])
+async def verify_plans():
+    """Debug endpoint to verify plan codes exist in Paystack"""
+    headers = {
+        "Authorization": f"Bearer {settings.FINAL_PAYSTACK_SECRET_KEY}",
+        "Content-Type": "application/json",
+    }
+    
+    results = {}
+    async with httpx.AsyncClient() as client:
+        for plan_name, plan_code in settings.PAYSTACK_PLAN_CODES.items():
+            try:
+                response = await client.get(
+                    f"{PAYSTACK_API_BASE_URL}/plan/{plan_code}",
+                    headers=headers
+                )
+                if response.status_code == 200:
+                    plan_data = response.json()
+                    results[plan_name] = {
+                        "exists": True,
+                        "plan_code": plan_code,
+                        "name": plan_data.get("data", {}).get("name"),
+                        "amount": plan_data.get("data", {}).get("amount"),
+                        "interval": plan_data.get("data", {}).get("interval"),
+                        "currency": plan_data.get("data", {}).get("currency")
+                    }
+                else:
+                    results[plan_name] = {
+                        "exists": False,
+                        "plan_code": plan_code,
+                        "error": f"HTTP {response.status_code}"
+                    }
+            except Exception as e:
+                results[plan_name] = {
+                    "exists": False,
+                    "plan_code": plan_code,
+                    "error": str(e)
+                }
+    
+    return {
+        "environment": settings.ENVIRONMENT,
+        "using_live_keys": settings.ENVIRONMENT.lower() == "production",
+        "plans": results
+    }
 
 
 @router.post(
