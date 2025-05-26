@@ -7,12 +7,58 @@ from typing import Dict, Optional
 from fastapi.concurrency import run_in_threadpool
 
 USERS_COLLECTION = "users"
+USER_APP_DATA_COLLECTION = "user_app_data"
 
 def get_firestore_db():
     """Initializes and returns a Firestore client instance."""
     if not firebase_admin._apps:
         pass # Assuming Firebase Admin is initialized via lifespan in server.py
     return firestore.client()
+
+async def migrate_mixed_document_to_separated(uid: str, mixed_data: Dict) -> bool:
+    """
+    Migrates a mixed document (containing both user profile and app data) 
+    to separate documents in proper collections.
+    """
+    db = get_firestore_db()
+    
+    try:
+        # Extract user profile data
+        profile_data = {
+            "uid": uid,
+            "email": mixed_data.get("email"),
+            "created_at": mixed_data.get("lastSync", datetime.now(timezone.utc)),  # Use lastSync as created_at if available
+            "subscription": {
+                "tier": "free",
+                "status": "active"
+            }
+        }
+        
+        # Extract application data
+        app_data = {
+            "savedJobs": mixed_data.get("savedJobs", []),
+            "profileData": mixed_data.get("profileData", {}),
+            "lastSync": mixed_data.get("lastSync"),
+            "version": mixed_data.get("version", "1.0.0"),
+            "email": mixed_data.get("email")
+        }
+        
+        # Create separate documents
+        user_ref = db.collection(USERS_COLLECTION).document(uid)
+        app_data_ref = db.collection(USER_APP_DATA_COLLECTION).document(uid)
+        
+        # Save user profile
+        await run_in_threadpool(user_ref.set, profile_data)
+        
+        # Save application data
+        await run_in_threadpool(app_data_ref.set, app_data)
+        
+        print(f"INFO: Successfully migrated mixed document for UID {uid} to separated collections")
+        return True
+        
+    except Exception as e:
+        print(f"ERROR: Failed to migrate mixed document for UID {uid}: {e}")
+        return False
 
 async def get_or_create_user(uid: str, email: str) -> Dict:
     """
@@ -32,26 +78,41 @@ async def get_or_create_user(uid: str, email: str) -> Dict:
     if user_doc.exists:
         user_data = user_doc.to_dict()
         
-        # Ensure this is user profile data, not application data
+        # Check if this is a mixed document (contains application data instead of user profile)
         if "savedJobs" in user_data or "profileData" in user_data:
             print(f"WARNING: User document {uid} contains application data instead of profile data")
             print(f"Document keys: {list(user_data.keys())}")
             
-            # Extract user profile data if it exists
-            profile_data = {
-                "uid": uid,
-                "email": email,
-                "created_at": user_data.get("created_at", datetime.now(timezone.utc)),
-                "subscription": user_data.get("subscription", {
-                    "tier": "free",
-                    "status": "active"
-                })
-            }
+            # Migrate the mixed document to proper structure
+            migration_success = await migrate_mixed_document_to_separated(uid, user_data)
             
-            # Save the corrected profile data back to Firestore
-            await run_in_threadpool(user_ref.set, profile_data)
-            print(f"INFO: Corrected user profile data for UID {uid}")
-            return profile_data
+            if migration_success:
+                # Return the proper user profile data
+                profile_data = {
+                    "uid": uid,
+                    "email": email,
+                    "created_at": user_data.get("lastSync", datetime.now(timezone.utc)),
+                    "subscription": {
+                        "tier": "free",
+                        "status": "active"
+                    }
+                }
+                print(f"INFO: Migration completed for UID {uid}, returning profile data")
+                return profile_data
+            else:
+                # Migration failed, create default profile
+                print(f"ERROR: Migration failed for UID {uid}, creating default profile")
+                profile_data = {
+                    "uid": uid,
+                    "email": email,
+                    "created_at": datetime.now(timezone.utc),
+                    "subscription": {
+                        "tier": "free",
+                        "status": "active"
+                    }
+                }
+                await run_in_threadpool(user_ref.set, profile_data)
+                return profile_data
         
         # Convert Firestore timestamps if needed
         if 'created_at' in user_data and hasattr(user_data['created_at'], 'ToDatetime'):
