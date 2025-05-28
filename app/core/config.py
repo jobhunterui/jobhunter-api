@@ -74,11 +74,14 @@ class Settings(BaseSettings):
     }
     PAYSTACK_PLAN_CODES: Optional[Dict[str, str]] = None
 
-    PREMIUM_FEATURES: List[str] = [
-        "gemini_cv_generation",
-        "gemini_cover_letter_generation",
-        "cv_upload_and_parse"
-    ]
+    # TEMPORARILY DISABLED: Premium features list - all features now free
+    # Original list preserved for re-enabling later:
+    # PREMIUM_FEATURES: List[str] = [
+    #     "gemini_cv_generation",
+    #     "gemini_cover_letter_generation", 
+    #     "cv_upload_and_parse"
+    # ]
+    PREMIUM_FEATURES: List[str] = []  # Empty list = no premium restrictions
 
     def _mask_sensitive_data(self, value: str, show_chars: int = 8) -> str:
         """Mask sensitive data for logging, showing only first few characters"""
