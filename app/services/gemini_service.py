@@ -72,75 +72,131 @@ class GeminiService:
     
     def _create_prompt(self, job_description: str, resume: str) -> str:
         """
-        Create a streamlined prompt for the Gemini API to reduce token usage.
+        Create an ATS-optimized prompt for the Gemini API (gemini-2.0-flash) for CV generation.
         """
+        # It's crucial to be very explicit with gemini-2.0-flash.
+        # We will guide it step-by-step for each part of the CV.
         return f"""
-    You are an expert CV tailor. Create a focused, professional CV for this specific job.
+You are an expert CV tailoring AI. Your task is to generate a highly ATS-optimized CV in JSON format.
+You MUST strictly adhere to the instructions and the JSON output format.
+Base all experience, skills, and education on the "USER'S RESUME" provided.
+Tailor the content using keywords and requirements from the "TARGET JOB DESCRIPTION".
 
-    JOB DESCRIPTION:
-    {job_description}
+TARGET JOB DESCRIPTION:
+---
+{job_description}
+---
 
-    RESUME:
-    {resume}
+USER'S RESUME (Source of Truth for user's experience):
+---
+{resume}
+---
 
-    Create a CV in JSON format with these fields:
-    - fullName: From resume
-    - jobTitle: Tailored professional title matching the job
-    - summary: Compelling summary highlighting qualifications (4-5 lines)
-    - email, linkedin, phone, location: From resume
-    - experience: Array of relevant jobs with:
-    * jobTitle, company, dates
-    * description: Focused on MOST relevant responsibilities 
-    * achievements: Array of 3 measurable achievements with numbers
-    * relevanceScore: 0-100 indicating relevance to the job
-    - education: Array with degree, institution, dates, relevanceScore
-    - skills: Array of categorized skills (e.g., "Technical: skill1, skill2")
-    - certifications: Any relevant certifications
-    - skillGapAnalysis: matchingSkills, missingSkills, overallMatch
+CRITICAL INSTRUCTIONS FOR ATS OPTIMIZATION (Follow these meticulously):
 
-    GUIDELINES:
-    - Focus on RELEVANCE to this specific job
-    - Include measurable achievements with numbers
-    - Use strong action verbs and job-specific terminology
+1.  **Keyword Extraction & Integration (MOST IMPORTANT):**
+    * Identify ALL relevant keywords from the "TARGET JOB DESCRIPTION". This includes hard skills, soft skills, tools, technologies, industry terms, and action verbs.
+    * Your primary goal is to incorporate these exact keywords naturally throughout the generated CV sections.
+    * Use the *exact phrasing* from the job description. If it says "data analysis", use "data analysis".
+    * If the job description uses an acronym (e.g., "CRM"), include it. If it uses the full term (e.g., "Customer Relationship Management"), use that. If both, use both if space permits or choose the one most prominent.
 
-    Return ONLY valid JSON - No explanation text:
-    ```json
+2.  **JSON Output Structure (MANDATORY):**
+    * You MUST return ONLY a single, valid JSON object. No introductory text, no explanations, no markdown formatting around the JSON.
+    * The JSON structure provided below under "EXPECTED JSON OUTPUT FORMAT" is the exact format you must follow. Do not deviate.
+
+3.  **Field-Specific Instructions:**
+
+    * `fullName`: Extract directly from "USER'S RESUME".
+    * `jobTitle`: Use the EXACT job title from the "TARGET JOB DESCRIPTION". This is critical for ATS matching.
+    * `summary`:
+        * Create a compelling 3-4 line professional summary.
+        * This summary MUST be heavily tailored to the "TARGET JOB DESCRIPTION".
+        * Incorporate at least 3-5 of the MOST IMPORTANT keywords from the "TARGET JOB DESCRIPTION" into this summary naturally.
+        * Clearly state the candidate's suitability for THIS SPECIFIC ROLE.
+    * `email`, `linkedin`, `phone`, `location`: Extract directly from "USER'S RESUME". If LinkedIn is missing, provide an empty string.
+    * `experience` (Array of objects):
+        * For each role from "USER'S RESUME":
+            * `jobTitle`: Use the job title from "USER'S RESUME".
+            * `company`: Use the company name from "USER'S RESUME".
+            * `dates`: Use the dates from "USER'S RESUME".
+            * `description`: Write a brief (1-2 sentences) overview of the role. Infuse this description with relevant keywords from the "TARGET JOB DESCRIPTION" that align with the responsibilities of that past role.
+            * `achievements`: (Array of strings) List 2-3 key achievements for this role, taken from "USER'S RESUME".
+                * Rephrase these achievements to include keywords from the "TARGET JOB DESCRIPTION" where natural and truthful.
+                * Start each achievement with a strong action verb (many can be found in the "TARGET JOB DESCRIPTION").
+                * Quantify achievements with numbers/percentages from "USER'S RESUME" whenever possible.
+            * `keywordsUsedInEntry`: (Array of strings) List the specific keywords from the "TARGET JOB DESCRIPTION" that you successfully incorporated into THIS experience entry (description and achievements). This is for verification.
+    * `education` (Array of objects):
+        * For each educational qualification from "USER'S RESUME":
+            * `degree`: Degree name from "USER'S RESUME".
+            * `institution`: Institution name from "USER'S RESUME".
+            * `dates`: Graduation year or dates of study from "USER'S RESUME".
+    * `skills` (Object with array values): THIS SECTION IS CRUCIAL FOR ATS.
+        * `technicalSkills`: List all technical skills from "USER'S RESUME" that are ALSO mentioned or implied in the "TARGET JOB DESCRIPTION". Add any other key technical skills from "USER'S RESUME".
+        * `softwareAndTools`: List all software/tools from "USER'S RESUME" that are ALSO mentioned in the "TARGET JOB DESCRIPTION". Add any other key software/tools from "USER'S RESUME".
+        * `methodologiesAndFrameworks`: List relevant methodologies (Agile, Scrum, etc.) from "USER'S RESUME", especially if mentioned in "TARGET JOB DESCRIPTION".
+        * `softSkills`: List key soft skills (communication, leadership, etc.) from "USER'S RESUME" that are relevant to the "TARGET JOB DESCRIPTION".
+        * `otherSkills`: Any other relevant skills from "USER'S RESUME" that match keywords in "TARGET JOB DESCRIPTION".
+        * **For all skill categories: Prioritize including skills that are explicitly mentioned in the "TARGET JOB DESCRIPTION" AND are present in the "USER'S RESUME".**
+    * `certifications`: (Array of strings) List all certifications from "USER'S RESUME".
+    * `atsAnalysis` (Object):
+        * `jobDescriptionKeywords`: List up to 10-15 of the most important keywords you identified from the "TARGET JOB DESCRIPTION".
+        * `integratedKeywords`: List the keywords from `jobDescriptionKeywords` that you successfully and naturally incorporated into the CV JSON.
+        * `keywordCoverageNotes`: Briefly state how well keywords were covered. E.g., "Good coverage of core technical skills and responsibilities."
+
+4.  **Truthfulness:**
+    * All information regarding experience, skills, and education MUST be based on the "USER'S RESUME".
+    * DO NOT invent or fabricate any information. Enhance and tailor, but stick to the facts in the user's resume.
+
+EXPECTED JSON OUTPUT FORMAT (Strictly adhere to this structure):
+```json
+{{
+  "fullName": "string",
+  "jobTitle": "string (Exact from Target Job Description)",
+  "summary": "string (3-4 lines, keyword-rich, tailored)",
+  "email": "string",
+  "linkedin": "string",
+  "phone": "string",
+  "location": "string",
+  "experience": [
     {{
-    "fullName": "",
-    "jobTitle": "",
-    "summary": "",
-    "email": "",
-    "linkedin": "",
-    "phone": "",
-    "location": "",
-    "experience": [
-        {{
-        "jobTitle": "",
-        "company": "",
-        "dates": "",
-        "description": "",
-        "achievements": ["", "", ""],
-        "relevanceScore": 95
-        }}
-    ],
-    "education": [
-        {{
-        "degree": "",
-        "institution": "",
-        "dates": "",
-        "relevanceScore": 80
-        }}
-    ],
-    "skills": ["", ""],
-    "certifications": ["", ""],
-    "skillGapAnalysis": {{
-        "matchingSkills": [""],
-        "missingSkills": [""],
-        "overallMatch": 85
+      "jobTitle": "string",
+      "company": "string",
+      "dates": "string",
+      "description": "string (1-2 sentences, keyword-infused)",
+      "achievements": [
+        "string (quantified, keyword-infused achievement 1)",
+        "string (quantified, keyword-infused achievement 2)"
+      ],
+      "keywordsUsedInEntry": ["keyword1", "keyword2"]
     }}
+  ],
+  "education": [
+    {{
+      "degree": "string",
+      "institution": "string",
+      "dates": "string"
     }}
-    ```
-    """
+  ],
+  "skills": {{
+    "technicalSkills": ["skill1", "skill2"],
+    "softwareAndTools": ["tool1", "tool2"],
+    "methodologiesAndFrameworks": ["methodology1"],
+    "softSkills": ["soft_skill1"],
+    "otherSkills": ["other_skill1"]
+  }},
+  "certifications": [
+    "string (certification name 1)"
+  ],
+  "atsAnalysis": {{
+    "jobDescriptionKeywords": ["jd_keyword1", "jd_keyword2"],
+    "integratedKeywords": ["cv_integrated_keyword1", "cv_integrated_keyword2"],
+    "keywordCoverageNotes": "string (Brief note on keyword integration)"
+  }}
+}}
+```
+
+Now, generate the CV based on the provided "TARGET JOB DESCRIPTION" and "USER'S RESUME", strictly following all instructions and the JSON format.
+"""
     
     def _extract_json(self, text: str) -> Dict[str, Any]:
         """
@@ -333,43 +389,92 @@ class GeminiService:
 
     def _create_cover_letter_prompt(self, job_description: str, resume: str, feedback: str = "") -> str:
         """
-        Create a prompt for generating a cover letter.
+        Create an ATS-optimized prompt for the Gemini API (gemini-2.0-flash) for Cover Letter generation.
+        This prompt emphasizes a structure that addresses job requirements directly.
         """
         feedback_section = ""
         if feedback:
             feedback_section = f"""
-    FEEDBACK FROM PREVIOUS ATTEMPT:
-    {feedback}
+IMPORTANT FEEDBACK ON PREVIOUS ATTEMPT (Address this carefully):
+---
+{feedback}
+---
+"""
 
-    Please address this feedback in the new cover letter.
-    """
-        
+        # Inspired by the user's successful cover letter structure.
+        # We need to guide gemini-2.0-flash very explicitly.
         return f"""
-    You are an expert cover letter writer. Create a professional, compelling cover letter for this specific job.
+You are an expert cover letter writing AI. Your task is to generate a professional, highly ATS-optimized cover letter.
+You MUST strictly adhere to all instructions.
+The cover letter should be based on the "USER'S RESUME" and tailored to the "TARGET JOB DESCRIPTION".
+The primary goal is to clearly show how the candidate's experience meets the key requirements of the job.
 
-    JOB DESCRIPTION:
-    {job_description}
+TARGET JOB DESCRIPTION:
+---
+{job_description}
+---
 
-    CANDIDATE RESUME:
-    {resume}
+USER'S RESUME (Source of Truth for user's experience):
+---
+{resume}
+---
 
-    {feedback_section}
-    GUIDELINES:
-    1. Create a professional, concise cover letter (300-400 words)
-    2. Use proper business letter format with date, greeting, paragraphs, and closing
-    3. Highlight the most relevant skills and experiences from the resume
-    4. Demonstrate clear understanding of the job requirements
-    5. Include a strong opening paragraph that hooks the reader
-    6. Include a paragraph on relevant achievements and skills
-    7. Include a closing paragraph expressing enthusiasm and requesting an interview
-    8. Use a professional tone that matches the industry
-    9. Include proper formatting with:
-    - Greeting/salutation ("Dear Hiring Manager" if no name is available)
-    - Closing (e.g., "Sincerely,")
-    - Candidate's name
+{feedback_section}
 
-    Return ONLY the ready-to-use cover letter with no additional explanations.
-    """
+CRITICAL INSTRUCTIONS FOR COVER LETTER STRUCTURE & ATS OPTIMIZATION:
+
+1.  **Overall Tone & Length:**
+    * Professional, confident, and enthusiastic.
+    * Concise: Aim for 3-4 main body paragraphs, under 400 words ideally.
+
+2.  **Standard Formatting (MANDATORY):**
+    * **Your Name & Contact Info:** (The AI should state that the user needs to add this manually at the top, as it cannot know it from the resume for a letter header)
+        * Example: "[Your Name]\n[Your Phone]\n[Your Email]\n[Your LinkedIn Profile URL (Optional)]"
+    * **Date:** (The AI should use a placeholder like "[Current Date]")
+    * **Hiring Manager/Company Address:**
+        * "Hiring Manager"
+        * "{{"Company Name from Job Description"}}" (The AI should extract this)
+        * "[Company Address - if known, otherwise skip]"
+    * **Salutation:** "Dear Hiring Manager,"
+    * **Closing:** "Sincerely,"
+    * **Your Typed Name:** "[Your Name]"
+
+3.  **Content - Paragraph by Paragraph Structure:**
+
+    * **Paragraph 1: Introduction (Clear and Direct)**
+        * State the EXACT job title you are applying for (from "TARGET JOB DESCRIPTION").
+        * State the company name (from "TARGET JOB DESCRIPTION").
+        * Briefly express strong interest in the role and the company.
+        * Mention 1-2 key aspects of your experience or the company that make this a good fit.
+
+    * **Paragraphs 2-3 (or 2-4): Requirement-Driven Body (THE CORE - MIMIC THIS STRUCTURE)**
+        * **Identify Key Requirements:** From the "TARGET JOB DESCRIPTION", identify 2-3 of the MOST CRITICAL and distinct requirements, skills, or experience areas the job asks for.
+        * **Address Each Requirement:** Dedicate a short paragraph (or a significant portion of a paragraph) to EACH key requirement identified.
+        * **Structure for Each Requirement:**
+            * Start by clearly referencing the requirement (e.g., "Regarding your need for X...", "My experience in Y aligns well with your requirements for...", "The job description highlights the importance of Z, an area where I have demonstrated success...").
+            * Provide specific examples from the "USER'S RESUME" that demonstrate your proficiency or achievements related to THAT specific requirement.
+            * Use keywords from the "TARGET JOB DESCRIPTION" naturally within these examples.
+            * Quantify achievements (numbers, percentages) from the "USER'S RESUME" whenever possible.
+        * **Do NOT use generic paragraphs.** Each body paragraph must be tied to a specific, identifiable requirement from the job description.
+
+    * **Final Paragraph: Company Fit & Call to Action**
+        * Briefly reiterate your enthusiasm for this specific role at this specific company.
+        * Mention something specific about the company (its mission, a recent project, values, market position – if easily inferable or if the AI has general knowledge) that attracts you, and briefly connect it to your own values or goals.
+        * State your confidence in your ability to contribute.
+        * Politely express your desire for an interview ("I am eager to discuss my qualifications further in an interview.").
+
+4.  **Keyword Integration (ATS CRITICAL):**
+    * Naturally weave in keywords from the "TARGET JOB DESCRIPTION" (skills, technologies, responsibilities, industry terms) throughout the letter, especially in the requirement-driven body paragraphs.
+    * Use the exact job title from the "TARGET JOB DESCRIPTION" at least once in the opening.
+
+5.  **Truthfulness:**
+    * All claims about experience and skills MUST be supported by the "USER'S RESUME". Do not invent.
+
+RETURN ONLY THE FULL TEXT OF THE COVER LETTER. No extra explanations, no preambles, no JSON. Just the letter.
+Start with "[Your Name]" placeholder for the header and end with "[Your Name]" placeholder for the signature.
+Use "[Current Date]" as a placeholder for the date.
+Use the actual company name from the job description in the recipient address block.
+"""
     
     async def structure_cv_from_text(self, cv_text: str) -> Dict[str, Any]:
         """
