@@ -9,6 +9,7 @@ from app.api.routes import payments as payments_router
 from app.api.routes import cv_parser as cv_parser_router
 from app.core.config import settings
 from app.core.firebase_admin_setup import initialize_firebase_admin
+from app.api.routes import profiling as profiling_router
 
 # Lifespan event to initialize Firebase Admin SDK
 # This is a context manager that runs on application startup and shutdown
@@ -63,6 +64,13 @@ def get_application() -> FastAPI:
         cv_parser_router.router, # Use cv_parser_router.router
         prefix=f"{settings.API_V1_STR}/cv", # Mounts under /api/v1/cv
         tags=["CV Tools"] # New tag or reuse "CV Generation"
+    )
+    
+    # Include the profiling router
+    application.include_router(
+        profiling_router.router,
+        prefix=f"{settings.API_V1_STR}/profiling", # e.g. /api/v1/profiling
+        tags=["Professional Profiling"]
     )
 
     return application

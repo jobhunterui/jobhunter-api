@@ -1,5 +1,6 @@
 import json
 from typing import Dict, Any
+from datetime import datetime
 
 import httpx
 import re
@@ -607,4 +608,209 @@ Use the actual company name from the job description in the recipient address bl
     skillGapAnalysis: Leave all fields (matchingSkills, missingSkills, overallMatch) as empty arrays or 0. This section is not for this parsing step.
     Return ONLY the valid JSON object. Do not include any explanatory text before or after the JSON.
     The entire output must be a single, valid JSON object.
+    """
+    
+    async def generate_professional_profile(self, cv_text: str, non_professional_experience: str, profiling_questions: Dict[str, str]) -> Dict[str, Any]:
+        """
+        Generate a comprehensive professional profile using Gemini AI based on CV, 
+        non-professional experience, and profiling questions.
+        """
+        prompt = self._create_profiling_prompt(cv_text, non_professional_experience, profiling_questions)
+        
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    self.api_url,
+                    headers={"Content-Type": "application/json"},
+                    params={"key": self.api_key},
+                    json={
+                        "contents": [
+                            {
+                                "parts": [
+                                    {
+                                        "text": prompt
+                                    }
+                                ]
+                            }
+                        ],
+                        "generationConfig": {
+                            "temperature": 0.3,  # Slightly higher for personality analysis
+                            "topP": 0.9,
+                            "topK": 40,
+                            "maxOutputTokens": 8192,  # Large response needed for comprehensive profile
+                        }
+                    },
+                    timeout=180.0,  # Extended timeout for complex analysis
+                )
+                
+                print(f"Gemini API response status for profiling: {response.status_code}")
+                
+                try:
+                    response.raise_for_status()
+                    data = response.json()
+                    
+                    # Extract the response text from Gemini
+                    result_text = data["candidates"][0]["content"]["parts"][0]["text"]
+                    finish_reason = data["candidates"][0].get("finishReason", "UNKNOWN")
+                    
+                    if finish_reason == "MAX_TOKENS":
+                        print("Warning: Gemini profiling response was truncated due to MAX_TOKENS limit")
+                    
+                    # Process the response to extract the JSON data
+                    return self._extract_json(result_text)
+                except Exception as e:
+                    print(f"Error processing Gemini profiling response: {str(e)}")
+                    print(f"Response content: {response.text if response.text else 'No response content'}")
+                    raise ValueError(f"Failed to process Gemini API profiling response: {str(e)}")
+        except Exception as e:
+            print(f"Exception in Gemini API call for profiling: {str(e)}")
+            raise ValueError(f"Gemini API profiling error: {str(e)}")
+
+    def _create_profiling_prompt(self, cv_text: str, non_professional_experience: str, profiling_questions: Dict[str, str]) -> str:
+        """
+        Create a comprehensive prompt for professional profiling using Gemini AI.
+        This prompt combines CV analysis, personality assessment, and career guidance.
+        """
+        return f"""
+    You are an expert career counselor, psychologist, and professional profiling specialist with deep expertise in:
+    - Big Five personality assessment
+    - Career development and role matching
+    - Skills analysis and competency mapping
+    - Professional behavioral analysis
+
+    Your task is to create a comprehensive professional profile based on the provided information.
+    You MUST return ONLY a valid JSON object following the exact structure specified below.
+
+    PROFESSIONAL CV/RESUME:
+    ---
+    {cv_text}
+    ---
+
+    NON-PROFESSIONAL EXPERIENCES:
+    ---
+    {non_professional_experience}
+    ---
+
+    PROFILING QUESTIONS RESPONSES:
+    Work Approach: {profiling_questions.get('work_approach', 'Not provided')}
+    Problem Solving Example: {profiling_questions.get('problem_solving', 'Not provided')}
+    Work Values: {profiling_questions.get('work_values', 'Not provided')}
+
+    ANALYSIS INSTRUCTIONS:
+
+    1. **Personality Profile Analysis:**
+    - Assess Big Five traits (Openness, Conscientiousness, Extraversion, Agreeableness, Neuroticism)
+    - Rate each trait on a scale of 1-10 with explanations
+    - Determine work style preferences (independent vs collaborative, detail-oriented vs big-picture, etc.)
+    - Assess leadership potential and style
+    - Analyze team dynamics and collaboration style
+
+    2. **Skills Assessment:**
+    - Extract technical skills from CV and rate proficiency (1-10)
+    - Identify soft skills from all experiences and rate them (1-10)
+    - Map transferable skills from non-professional experiences
+    - Identify skill gaps for career advancement
+
+    3. **Role Fit Analysis:**
+    - Suggest 5-8 specific job roles they would excel in
+    - Provide match scores (0-1) for different role categories
+    - Assess current career level and readiness for advancement
+
+    4. **Career Development Path:**
+    - Recommend specific next steps for career growth
+    - Prioritize skill development areas
+    - Suggest 2-3 career progression paths with timelines
+    - Provide actionable recommendations
+
+    5. **Behavioral Insights:**
+    - Analyze decision-making style from problem-solving example
+    - Determine communication preferences
+    - Identify key motivation drivers
+    - Predict potential workplace challenges
+    - Define ideal work environment characteristics
+
+    CRITICAL JSON OUTPUT REQUIREMENTS:
+    - Return ONLY valid JSON, no explanatory text
+    - Follow the exact structure below
+    - Use specific, actionable language
+    - Base all assessments on provided information
+    - Assign realistic confidence scores
+
+    REQUIRED JSON STRUCTURE:
+    ```json
+    {{
+    "personality_profile": {{
+        "traits": {{
+        "openness": {{"score": 7, "description": "Shows curiosity and willingness to try new approaches"}},
+        "conscientiousness": {{"score": 8, "description": "Demonstrates strong attention to detail and reliability"}},
+        "extraversion": {{"score": 6, "description": "Comfortable in both social and independent work settings"}},
+        "agreeableness": {{"score": 7, "description": "Collaborative and considerate of others' perspectives"}},
+        "neuroticism": {{"score": 3, "description": "Maintains composure under pressure and stress"}}
+        }},
+        "work_style": "Balanced approach combining independent analysis with collaborative execution",
+        "leadership_potential": "Strong potential for technical leadership roles with natural mentoring abilities",
+        "team_dynamics": "Effective team player who can bridge technical and non-technical stakeholders"
+    }},
+    "skills_assessment": {{
+        "technical_skills": [
+        {{"skill": "Python", "proficiency": 8, "source": "professional"}},
+        {{"skill": "Project Management", "proficiency": 7, "source": "professional"}}
+        ],
+        "soft_skills": [
+        {{"skill": "Communication", "proficiency": 8, "source": "both"}},
+        {{"skill": "Problem Solving", "proficiency": 9, "source": "both"}}
+        ],
+        "transferable_skills": [
+        {{"skill": "Event Organization", "proficiency": 7, "source": "non_professional"}},
+        {{"skill": "Community Leadership", "proficiency": 8, "source": "non_professional"}}
+        ],
+        "skill_gaps": ["Advanced Data Analysis", "Strategic Planning", "Public Speaking"]
+    }},
+    "role_fit_analysis": {{
+        "suitable_roles": [
+        {{"title": "Senior Software Engineer", "match_score": 0.85, "reasoning": "Strong technical skills with leadership potential"}},
+        {{"title": "Technical Project Manager", "match_score": 0.82, "reasoning": "Combines technical expertise with organizational abilities"}}
+        ],
+        "role_match_scores": {{
+        "technical_individual_contributor": 0.88,
+        "technical_leadership": 0.78,
+        "project_management": 0.82,
+        "consulting": 0.75
+        }},
+        "career_level_assessment": "Mid-level professional ready for senior roles with additional leadership development"
+    }},
+    "career_development": {{
+        "recommended_next_steps": [
+        "Seek technical leadership opportunities in current role",
+        "Develop public speaking skills through professional presentations",
+        "Pursue advanced certification in core technical area"
+        ],
+        "skill_development_priorities": [
+        "Strategic thinking and planning",
+        "Advanced technical expertise in specialization area",
+        "Team leadership and mentoring"
+        ],
+        "career_progression_paths": [
+        {{"path": "Technical Leadership Track", "timeline": "2-3 years", "next_role": "Technical Lead"}},
+        {{"path": "Management Track", "timeline": "3-4 years", "next_role": "Engineering Manager"}}
+        ],
+        "timeline_recommendations": {{
+        "short_term_6_months": "Focus on leadership skills and advanced technical training",
+        "medium_term_2_years": "Target senior technical role with team responsibilities",
+        "long_term_5_years": "Establish expertise in specialized area with industry recognition"
+        }}
+    }},
+    "behavioral_insights": {{
+        "decision_making_style": "Analytical approach with consideration of multiple perspectives before deciding",
+        "communication_style": "Clear, direct communication with ability to adapt to technical and non-technical audiences",
+        "motivation_drivers": ["Professional growth", "Technical challenges", "Positive team impact"],
+        "potential_challenges": ["May need to develop comfort with ambiguous situations", "Could benefit from more assertiveness in leadership situations"],
+        "work_environment_preferences": ["Collaborative but focused environment", "Access to learning opportunities", "Clear goal setting with autonomy in execution"]
+    }},
+    "confidence_score": 0.85,
+    "generated_at": "{datetime.now().isoformat()}"
+    }}
+    ```
+
+    Analyze all provided information thoroughly and generate a comprehensive, accurate professional profile in the exact JSON format specified above.
     """
