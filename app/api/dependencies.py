@@ -2,6 +2,7 @@
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer # Can be adapted for Bearer tokens
 from firebase_admin import auth
+from app.core.config import settings
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token") # tokenUrl is not strictly used here but required
 
@@ -36,3 +37,25 @@ async def get_current_active_user_uid(current_user: dict = Depends(get_current_u
     if not current_user or "uid" not in current_user:
         raise HTTPException(status_code=400, detail="User not found in token")
     return current_user["uid"]
+
+async def get_current_admin_user_uid(current_user: dict = Depends(get_current_user)) -> str:
+    """
+    This dependency checks if the authenticated user is in the admin list.
+    It relies on get_current_user to first validate the token.
+    """
+    user_email = current_user.get("email")
+    user_uid = current_user.get("uid")
+
+    if not user_email or not user_uid:
+        raise HTTPException(status_code=400, detail="User email or UID not found in token")
+
+    # Check the user's email against the list of admins from your settings
+    if user_email not in settings.ADMIN_EMAIL_ADDRESSES:
+        print(f"SECURITY: Admin access DENIED for user {user_email} ({user_uid})")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have administrative privileges."
+        )
+
+    print(f"SECURITY: Admin access GRANTED for user {user_email} ({user_uid})")
+    return user_uid

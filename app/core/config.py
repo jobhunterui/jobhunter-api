@@ -82,6 +82,11 @@ class Settings(BaseSettings):
     #     "cv_upload_and_parse"
     # ]
     PREMIUM_FEATURES: List[str] = []  # Empty list = no premium restrictions
+    
+    ADMIN_EMAIL_ADDRESSES: List[str] = [
+        "osiokeitseuwa@gmail.com",
+        #"anotherAdmin@example.com"
+        ]
 
     def _mask_sensitive_data(self, value: str, show_chars: int = 8) -> str:
         """Mask sensitive data for logging, showing only first few characters"""

@@ -7,7 +7,7 @@ from app.schemas.user import UserSubscription
 from app.services.gemini_service import GeminiService
 from app.services.profiling_service import profiling_service, ProfilingService
 from app.services.rate_limiter import RateLimiter
-from app.api.dependencies import get_current_active_user_uid
+from app.api.dependencies import get_current_active_user_uid, get_current_admin_user_uid
 from app.services.user_service import get_user_subscription_object
 from app.core.config import settings
 
@@ -124,6 +124,45 @@ async def generate_professional_profile(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"An unexpected error occurred while generating your professional profile: {str(e)}"
         )
+        
+@router.post("/save_profile")
+async def save_my_profile(
+    # The request body from the frontend will be validated against this Pydantic model
+    request_data: dict, 
+    # This dependency gives us access to the ProfilingService (the "engine")
+    profiling_svc: ProfilingService = Depends(lambda: profiling_service),
+    # This dependency gets the user's UID from their token
+    current_user_uid: str = Depends(get_current_active_user_uid)
+):
+    """
+    Saves or updates a user's professional profile from the cloud sync.
+    The frontend sends the profile data in the request body.
+    """
+    print(f"Profile save request for user UID: {current_user_uid}")
+    
+    # Extract the actual profile data from the request
+    profile_data_to_save = request_data.get("profile_data")
+    if not profile_data_to_save:
+        raise HTTPException(status_code=400, detail="Missing 'profile_data' in request.")
+
+    try:
+        # HERE IS THE KEY: We are calling the EXISTING service method you pointed out.
+        # This new endpoint acts as the bridge from the internet to your service logic.
+        success = await profiling_svc.save_user_profile(current_user_uid, profile_data_to_save)
+        
+        if success:
+            return {"status": "success", "message": "Profile saved successfully."}
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to save profile in the service."
+            )
+    except Exception as e:
+        print(f"Error in /save_profile endpoint for user {current_user_uid}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"An error occurred while saving your profile: {str(e)}"
+        )
 
 @router.get("/my_profile")
 async def get_my_profile(
@@ -164,17 +203,13 @@ async def get_my_profile(
 async def get_all_profiles_admin(
     limit: Optional[int] = 50,
     profiling_svc: ProfilingService = Depends(lambda: profiling_service),
-    current_user_uid: str = Depends(get_current_active_user_uid)
+    admin_user_uid: str = Depends(get_current_admin_user_uid)
 ):
     """
     Admin endpoint to retrieve all user profiles.
-    TODO: Add proper admin authentication check.
     """
-    print(f"Admin profile retrieval request from user UID: {current_user_uid}")
-    
-    # TODO: Implement proper admin role checking
-    # For now, this is open but should be restricted to admin users
-    
+    print(f"Admin profile retrieval request from user UID: {admin_user_uid}")
+
     try:
         profiles = await profiling_svc.list_all_profiles(limit=limit)
         
@@ -185,7 +220,7 @@ async def get_all_profiles_admin(
         }
         
     except Exception as e:
-        print(f"Error retrieving profiles for admin {current_user_uid}: {e}")
+        print(f"Error retrieving profiles for admin {admin_user_uid}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error retrieving user profiles: {str(e)}"
